@@ -1,0 +1,46 @@
+# Install once with: uv run pre-commit install
+# These are the same checks CI runs, so "it passed locally" means something.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # `.env.example` is committed on purpose and must pass. Anything else
+      # that looks like a real env file must not, including nested ones.
+      #
+      # Tested against the empty case deliberately: `grep -qv` returns 0 on
+      # empty input, so the obvious `... | grep -qv ... && exit 1` spelling
+      # blocks *every* commit that touches no env file at all. Capturing the
+      # matches and testing for a non-empty string has no such subtlety, and
+      # it can name the offending file instead of just refusing.
+      - id: no-committed-env
+        name: refuse to commit a real .env file
+        entry: bash -c 'bad=$(git diff --cached --name-only | grep -E "(^|/)\.env($|\.)" | grep -vE "(^|/)\.env\.(example|template|sample)$"); if [ -n "$bad" ]; then echo "Refusing to commit env file(s):"; echo "$bad"; exit 1; fi'
+        language: system
+        pass_filenames: false

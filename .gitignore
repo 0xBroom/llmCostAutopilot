@@ -1,0 +1,35 @@
+# Secrets — never commit. `.env.example` is the committed template.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Data and generated artifacts
+data/
+*.db
+*.db-wal
+*.db-shm
+artifacts/
+reports/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
