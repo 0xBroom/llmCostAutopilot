@@ -9,10 +9,11 @@ help:
 install:
 	uv sync
 
-## lint: ruff check + format check
+## lint: ruff check + format check + architecture contracts
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
+	uv run lint-imports
 
 ## format: apply ruff formatting and safe autofixes
 format:

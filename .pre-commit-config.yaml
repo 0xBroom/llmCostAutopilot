@@ -31,6 +31,13 @@ repos:
         types: [python]
         pass_filenames: false
 
+      - id: lint-imports
+        name: architecture contracts (import-linter)
+        entry: uv run lint-imports
+        language: system
+        types: [python]
+        pass_filenames: false
+
       # `.env.example` is committed on purpose and must pass. Anything else
       # that looks like a real env file must not, including nested ones.
       #

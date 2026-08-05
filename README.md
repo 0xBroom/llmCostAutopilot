@@ -24,6 +24,27 @@ make format      apply ruff fixes and formatting
 make test        the test suite
 ```
 
+## Architecture
+
+Ports and adapters, with the dependency rule enforced mechanically rather than
+by convention:
+
+```
+src/autopilot/
+├── domain/           pure types and rules. no I/O, no vendor SDKs
+├── application/      use cases + the port Protocols
+├── infrastructure/   adapters. the only layer that may import a vendor SDK
+├── interfaces/       HTTP, worker, CLI
+└── config/           typed settings and YAML loaders
+```
+
+`import-linter` fails the build if `domain` or `application` import a vendor
+SDK or a framework. That contract is what makes the claim "swap the provider
+layer without touching business logic" verifiable instead of aspirational — and
+it is the cheapest way to keep it true as the codebase grows.
+
+Decisions with reasoning are in [`docs/adr/`](docs/adr/).
+
 ## Configuration
 
 Every variable the service reads is listed in `.env.example`, which is
