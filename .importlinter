@@ -32,6 +32,16 @@ forbidden_modules =
     openai
     anthropic
 
+[importlinter:contract:litellm-single-entrypoint]
+name = Only the litellm_env shim may import litellm
+type = forbidden
+source_modules =
+    autopilot
+forbidden_modules =
+    litellm
+ignore_imports =
+    autopilot.infrastructure.litellm_env -> litellm
+
 [importlinter:contract:config-is-a-leaf]
 name = Config is read by the edges, never by the core
 type = forbidden

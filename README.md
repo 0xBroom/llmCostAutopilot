@@ -4,6 +4,21 @@ A routing layer that reads each incoming LLM request, decides how much model it
 actually deserves, sends it to the cheapest model that can handle it — and then
 keeps checking whether that decision was right.
 
+> **LiteLLM answers *"which deployment of the model I chose?"*.
+> This project answers *"which model does this request actually deserve?"*.**
+
+That sentence is the whole scope boundary. LiteLLM is the provider plumbing: one
+async call signature across OpenAI, Anthropic and Ollama, a maintained price
+map, normalised token usage, retries and fallbacks. What it does **not** do —
+and this is confirmed against its routing documentation — is pick a model based
+on the *content* of the request. Every one of its strategies (`simple-shuffle`,
+`latency-based-routing`, `usage-based-routing-v2`, `least-busy`,
+`cost-based-routing`) reasons about deployment metrics: latency, load, spend.
+None of them read the prompt.
+
+Reading the prompt, pricing the decision, and proving it was correct is what
+this project builds.
+
 ## Getting started
 
 ```bash
@@ -42,6 +57,14 @@ src/autopilot/
 SDK or a framework. That contract is what makes the claim "swap the provider
 layer without touching business logic" verifiable instead of aspirational — and
 it is the cheapest way to keep it true as the codebase grows.
+
+One contract is worth calling out because it looks odd: **only
+`infrastructure/litellm_env.py` may import `litellm`**. LiteLLM reads
+`LITELLM_LOCAL_MODEL_COST_MAP` once, at first import, to decide whether to pin
+its price map to the packaged copy or fetch a newer one over the network. Set it
+too late and it does nothing, silently, and cost figures stop being
+reproducible. Funnelling the import through one module puts the environment
+variable structurally above it, and a test asserts the source order.
 
 Decisions with reasoning are in [`docs/adr/`](docs/adr/).
 

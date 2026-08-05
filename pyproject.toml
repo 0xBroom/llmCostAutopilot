@@ -7,6 +7,12 @@ requires-python = ">=3.11,<3.14"
 license = { text = "MIT" }
 
 dependencies = [
+    # Pinned EXACTLY, not with a range. LiteLLM ships its model price map
+    # *inside the package*, so the version determines our cost figures. An
+    # unreviewed minor bump can silently change every number in the savings
+    # report. Upgrades are a reviewed change with a re-run of the benchmark.
+    # See docs/adr/0001-litellm-as-provider-abstraction.md.
+    "litellm==1.95.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.14",
     "pyyaml>=6.0",
@@ -97,6 +103,11 @@ no_implicit_reexport = true
 check_untyped_defs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
+
+# litellm does not ship complete stubs.
+[[tool.mypy.overrides]]
+module = ["litellm.*"]
+ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest ----
 
