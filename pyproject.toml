@@ -26,6 +26,7 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",
+    "pytest-recording>=0.13.4",
     "import-linter>=2.13",
     "pre-commit>=4.0",
     "types-pyyaml",
@@ -104,6 +105,18 @@ check_untyped_defs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
+# The core is where the logic lives, so the core gets the full strict set.
+# The edges (adapters, delivery) get the pragmatic baseline above.
+[[tool.mypy.overrides]]
+module = ["autopilot.domain.*", "autopilot.application.*"]
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+extra_checks = true
+strict_equality = true
+warn_unreachable = true
+
 # litellm does not ship complete stubs.
 [[tool.mypy.overrides]]
 module = ["litellm.*"]
@@ -114,5 +127,26 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-q --strict-markers --strict-config"
+# `live` is deselected by default: the default suite must never spend money
+# and must be runnable on a fork PR, where no secrets exist.
+addopts = "-q -m 'not live' --strict-markers --strict-config"
 asyncio_mode = "auto"
+markers = [
+    "live: hits real provider APIs. Costs money. Requires credentials. Opt-in only.",
+    "contract: replays a recorded provider cassette. No network.",
+    "integration: exercises our own services end to end. No external network.",
+]
+filterwarnings = ["error::DeprecationWarning:autopilot.*"]
+
+# -------------------------------------------------------------- coverage ----
+
+[tool.coverage.run]
+branch = true
+source = ["src/autopilot/domain", "src/autopilot/application"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.",          # Protocol method bodies
+    "raise NotImplementedError",
+]

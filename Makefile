@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test check clean
+.PHONY: help install lint typecheck test test-live check clean run-api run-worker dashboard
 
 ## help: list available targets
 help:
@@ -24,12 +24,30 @@ format:
 typecheck:
 	uv run mypy
 
-## test: the test suite
+## test: the default suite. No network, no spend, no `live` tests.
+##       Coverage is gated on domain/ and application/ only — a global
+##       number is gamed by testing adapters that contract tests should cover.
 test:
-	uv run pytest
+	uv run pytest --cov --cov-report=term-missing --cov-fail-under=75
+
+## test-live: opt-in. Hits real providers. Costs money. Needs credentials.
+test-live:
+	uv run pytest -m live
 
 ## check: everything CI runs. If this is green, CI is green.
 check: lint typecheck test
+
+## run-api: the HTTP service, with reload
+run-api:
+	uv run uvicorn autopilot.interfaces.http.app:app --reload
+
+## run-worker: the async verification worker
+run-worker:
+	uv run python -m autopilot.interfaces.worker
+
+## dashboard: the Streamlit cost dashboard
+dashboard:
+	uv run streamlit run src/autopilot/interfaces/dashboard/app.py
 
 ## clean: remove build, cache and coverage artifacts
 clean:
