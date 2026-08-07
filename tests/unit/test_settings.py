@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -109,3 +110,28 @@ def test_make_settings_ignores_the_dotenv_file(
     monkeypatch.chdir(tmp_path)
 
     assert make_settings().openai_api_key is None
+
+
+def test_daily_budget_defaults_to_none() -> None:
+    """No cap configured means the guard that reads this field is never
+    consulted — Phase 2's wiring decision, not this slice's."""
+    assert _settings().daily_budget_usd is None
+
+
+def test_daily_budget_accepts_a_decimal() -> None:
+    assert _settings(daily_budget_usd=Decimal("50.00")).daily_budget_usd == Decimal("50.00")
+
+
+def test_daily_budget_accepts_a_string() -> None:
+    """Environment values are always strings, so this is the exact path env
+    vars take — and it is exact, unlike the float path below."""
+    assert _settings(daily_budget_usd="50.00").daily_budget_usd == Decimal("50.00")
+
+
+def test_daily_budget_rejects_a_float() -> None:
+    """A float budget is a float in the money path, and pydantic would coerce
+    it silently otherwise. This is the fourth Decimal-boundary door — the
+    other three (R1/R2/R3 AST rules, the pricing.py behaviour test) cannot
+    reach a pydantic field coercion."""
+    with pytest.raises(ValidationError, match="never a float"):
+        _settings(daily_budget_usd=25.0)
