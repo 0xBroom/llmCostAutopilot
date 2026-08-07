@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from autopilot.domain.catalog import ModelCatalog
 from autopilot.domain.models import (
     CompletionRequest,
     ComplexityTier,
@@ -67,6 +68,13 @@ EXPENSIVE = ModelConfig(
 )
 
 CATALOG = {m.key: m for m in (LOCAL, CHEAP, EXPENSIVE)}
+
+
+def make_catalog(*, models: tuple[ModelConfig, ...] | None = None) -> ModelCatalog:
+    """A three-tier catalog (LOCAL/CHEAP/EXPENSIVE) ready for fallback-
+    derivation and invariant tests. Override `models` to test a specific
+    catalog shape — every later slice's tests use this."""
+    return ModelCatalog(models=models if models is not None else (LOCAL, CHEAP, EXPENSIVE))
 
 
 def make_request(
