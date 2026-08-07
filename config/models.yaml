@@ -1,0 +1,58 @@
+# The catalog DESCRIBES models. It holds no credentials and no endpoints:
+# api_key and (for ollama) api_base are injected at Router construction from
+# Settings. There is deliberately no `fallbacks:` key — fallback chains are
+# derived from quality_tier by ModelCatalog.fallback_chain, which is what
+# makes "a fallback never goes downward" structurally true instead of
+# reviewed.
+#
+# Every provider_model_id below was verified this session to resolve against
+# the exact installed litellm==1.95.0 bundled price map, via the loader's
+# two-step key resolution (direct key, then the bare name after the first
+# "/"):
+#
+#   anthropic/claude-haiku-4-5  -> resolves bare, as "claude-haiku-4-5".
+#   openai/gpt-4o               -> resolves bare, as "gpt-4o".
+#   anthropic/claude-sonnet-4-5 -> resolves bare, as "claude-sonnet-4-5"
+#                                   (also carries a negotiated-rate override
+#                                   below, independent of resolution).
+#
+# A local tier-1 model (which needs litellm.register_model() support, since
+# "ollama_chat/llama3.1" is absent from the map entirely) lands in a later
+# commit alongside that support.
+
+version: 1
+
+models:
+  # --- tier 2: cheap hosted ---------------------------------------------------
+  - key: haiku-4-5
+    provider: anthropic
+    provider_model_id: anthropic/claude-haiku-4-5
+    quality_tier: 2
+    supports_json_mode: true
+    # No price block: resolved from the bundled map. Note the map key is
+    # "claude-haiku-4-5" WITHOUT the "anthropic/" prefix — the loader's
+    # two-step resolution handles that.
+
+  # --- tier 3: frontier, and the baseline we measure savings against ----------
+  - key: gpt-4o
+    provider: openai
+    provider_model_id: openai/gpt-4o
+    quality_tier: 3
+    supports_json_mode: true
+    baseline: true
+
+  # --- tier 3: the judge ------------------------------------------------------
+  - key: sonnet-4-5
+    provider: anthropic
+    provider_model_id: anthropic/claude-sonnet-4-5
+    quality_tier: 3
+    supports_json_mode: true
+    judge: true
+    judge_fallback: gpt-4o
+    # Negotiated rate, deliberately disagreeing with the bundled map.
+    # price_source becomes CATALOG_OVERRIDE. This model resolves against the
+    # map on its own ("claude-sonnet-4-5" is bare-key present) — the override
+    # is a business decision, not a resolution workaround.
+    price:
+      input_cost_per_token: "0.0000027"
+      output_cost_per_token: "0.0000135"
