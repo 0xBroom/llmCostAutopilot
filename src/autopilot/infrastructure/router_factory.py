@@ -25,8 +25,11 @@ found by reading litellm 1.95.0's own source rather than assuming:
    values: plain dicts and lists litellm has not yet had a chance to touch.
 
 `build_model_list` and `build_fallbacks` are public and deliberately split
-from `build_router` (not yet written) for exactly that reason: every shape
-assertion here runs with zero `litellm` import, in the fast unit tier.
+from `build_router` for exactly that reason: every shape assertion in
+`tests/unit/test_router_deployments.py` runs with zero `litellm` import, in
+the fast unit tier. `build_router`'s own tests
+(`tests/unit/test_router_factory.py`) assert over a real constructed
+instance instead, because of hazard 2 above.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from autopilot.config.settings import Settings
 from autopilot.domain.catalog import ModelCatalog
 from autopilot.domain.errors import ConfigurationError, MissingCredentialsError
 from autopilot.domain.models import ModelConfig
+from autopilot.infrastructure.litellm_env import litellm
 
 _KEY_ACCESSORS: Final[Mapping[str, Callable[[Settings], SecretStr | None]]] = {
     "openai": lambda s: s.openai_api_key,
@@ -133,3 +137,98 @@ def build_fallbacks(catalog: ModelCatalog) -> list[dict[str, list[str]]]:
                 )
         out.append({model.key: list(chain)})
     return out
+
+
+# --- build_router -------------------------------------------------------------
+
+ROUTER_NUM_RETRIES: Final[int] = 1
+"""With one deployment per group a retry re-hits the *same* model. More than
+one multiplies latency against `request_timeout_s` and delays the fallback
+that would actually help."""
+
+ROUTER_RETRY_AFTER_SECONDS: Final[int] = 1
+"""litellm's own default is 0 (immediate). Retrying a 429 with no pause is
+how a rate limit becomes a rate-limit storm."""
+
+ROUTER_ALLOWED_FAILS: Final[int] = 3
+"""Three consecutive failures park the deployment."""
+
+ROUTER_COOLDOWN_SECONDS: Final[float] = 60.0
+"""Long enough that a dead provider stops being hammered, short enough that
+recovery is not punished for a whole shift."""
+
+ROUTING_STRATEGY: Final = "simple-shuffle"
+"""Inert today — one deployment per group leaves nothing to shuffle between.
+Pinned explicitly so that if a group ever gains a second deployment, it
+inherits a strategy someone chose rather than whatever litellm's default
+becomes. Deliberately un-annotated (no `Final[str]`): `litellm.Router`'s
+`routing_strategy` parameter is a `Literal[...]`, and an explicit `str`
+annotation would widen this constant past what that parameter accepts."""
+
+
+def _verify_model_ids_round_tripped(router: Any, *, expected_ids: set[str]) -> None:
+    """F3 depends on litellm honouring a caller-supplied `model_info["id"]`:
+    `router.py:8038-8041`'s `set_model_list` only generates one when `"id" not
+    in _model_info` — ours is never missing, so it must never be replaced.
+    That was verified by reading source, not by executing a call, until this
+    slice built the first real `litellm.Router` this codebase has ever
+    constructed.
+
+    If a future litellm version ever regenerates the id anyway, every
+    fallback attribution in `_answering_model` (slice 7) would silently
+    attribute a response — and its price — to the wrong catalog model. Fail
+    loudly here, at build time, instead of mis-pricing every request that
+    happens to fall back afterwards.
+    """
+    actual_ids = {(entry.get("model_info") or {}).get("id") for entry in router.model_list}
+    if actual_ids != expected_ids:
+        raise ConfigurationError(
+            "litellm.Router did not preserve model_info['id'] as passed (F3): "
+            f"expected {sorted(expected_ids)}, got {sorted(str(i) for i in actual_ids)}"
+        )
+
+
+def build_router(catalog: ModelCatalog, settings: Settings) -> Any:
+    """Assemble the Router. Returns `litellm.Router`, typed `Any` — litellm
+    does not export `Router` through `__init__.py`'s explicit surface, and
+    `no_implicit_reexport` (mypy strict) refuses to let a type annotation
+    name it via the shim's re-exported module object. Same class of
+    incomplete-stub workaround `model_catalog_loader.py` already uses for
+    `litellm.model_cost` (typed `Mapping[str, Any]` at the point of use).
+
+    `content_policy_fallbacks` and
+    `context_window_fallbacks` are deliberately NOT passed:
+
+    - `content_policy_fallbacks` unset: if set, a content-policy refusal is
+      silently retried on another model and `ContentFilteredError` never
+      surfaces — litellm would have overridden the routing decision this
+      system exists to make explicitly.
+    - `context_window_fallbacks` unset: same failure class. A silent
+      context-overflow retry means the audit trail never records why a
+      bigger model actually answered.
+
+    See `tests/unit/test_router_factory.py` for the assertions that only a
+    constructed instance can prove.
+    """
+    model_list = build_model_list(catalog, settings)
+    # `litellm/__init__.py` binds `Router` via a bare `from .router import
+    # Router` (no `as Router`, no `__all__` entry) — `no_implicit_reexport`
+    # (mypy strict) does not consider that exported from outside the litellm
+    # package, regardless of `ignore_missing_imports`. Same incomplete-stub
+    # class as the return type above.
+    router = litellm.Router(  # type: ignore[attr-defined]
+        model_list=model_list,
+        fallbacks=build_fallbacks(catalog),
+        num_retries=ROUTER_NUM_RETRIES,
+        retry_after=ROUTER_RETRY_AFTER_SECONDS,
+        allowed_fails=ROUTER_ALLOWED_FAILS,
+        cooldown_time=ROUTER_COOLDOWN_SECONDS,
+        routing_strategy=ROUTING_STRATEGY,
+        timeout=settings.request_timeout_s,
+        # content_policy_fallbacks: NOT PASSED, see docstring above.
+        # context_window_fallbacks: NOT PASSED, same reason, different door.
+    )
+    _verify_model_ids_round_tripped(
+        router, expected_ids={entry["model_info"]["id"] for entry in model_list}
+    )
+    return router

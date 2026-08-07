@@ -131,3 +131,10 @@ red. So the guarantee is structural:
 - [x] One Router deployment group per catalog key, never per tier — asserted by
       `tests/unit/test_router_deployments.py::test_one_deployment_group_per_catalog_key`
       and `::test_each_group_points_at_exactly_its_own_provider_model_id`.
+- [x] `content_policy_fallbacks` and `context_window_fallbacks` are left unset, so
+      a safety refusal or a context overflow surfaces as a domain error instead of
+      being silently retried elsewhere — asserted by
+      `tests/unit/test_router_factory.py::test_content_policy_fallbacks_stay_unset`
+      and `::test_context_window_fallbacks_stay_unset`.
+- [x] No wildcard `{"*": [...]}` fallback entry reaches the Router — asserted by
+      `tests/unit/test_router_factory.py::test_no_wildcard_fallback_entry`.
