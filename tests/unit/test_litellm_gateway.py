@@ -9,22 +9,55 @@ vendor-free.
 
 from __future__ import annotations
 
-import pytest
+import dataclasses
+from decimal import Decimal
 
+import pytest
+from structlog.testing import capture_logs
+
+from autopilot.domain.catalog import ModelCatalog
 from autopilot.domain.errors import (
     AuthenticationFailedError,
     ContentFilteredError,
     ProviderResponseError,
     ProviderUnavailableError,
 )
+from autopilot.domain.models import (
+    ComplexityTier,
+    CostBreakdown,
+    LLMResponse,
+    ModelConfig,
+    PriceSource,
+    RequestRecord,
+)
 from autopilot.infrastructure.litellm_env import litellm
 from autopilot.infrastructure.litellm_gateway import LiteLLMGateway
-from tests.factories import CHEAP, EXPENSIVE, LOCAL, make_catalog, make_request
+from tests.factories import CHEAP, EXPENSIVE, LOCAL, make_catalog, make_decision, make_request
 from tests.fakes.response import FakeChoice, FakeMessage, FakeModelResponse, FakeUsage
 from tests.fakes.router import FakeRouter
+from tests.fakes.store import InMemoryRequestStore
 
 _PROMPT_TOKENS = 120
 _COMPLETION_TOKENS = 45
+
+# A model priced wildly differently from the real bundled map (gpt-4o's real
+# input price is ~2.5e-6, not 1e-3) — used only by the divergence test, which
+# needs the canary's litellm-side computation to actually succeed (unlike
+# CHEAP's provider_model_id, which the installed map does not resolve at all,
+# verified empirically; see litellm_gateway._check_price_agreement's
+# best-effort except-and-skip for that case).
+_MISPRICED_GPT4O = ModelConfig(
+    key="gpt-4o",
+    provider="openai",
+    provider_model_id="openai/gpt-4o",
+    input_cost_per_token=Decimal("0.001"),
+    output_cost_per_token=Decimal("0.001"),
+    max_context_tokens=128_000,
+    quality_tier=ComplexityTier.COMPLEX,
+    price_source=PriceSource.CATALOG_OVERRIDE,
+    baseline=True,
+    judge=True,
+)
 
 
 def _response(
@@ -183,3 +216,78 @@ async def test_content_filtered_success_path() -> None:
 
     with pytest.raises(ContentFilteredError):
         await gateway.complete(make_request(), CHEAP, timeout_s=30)
+
+
+# --- the price-agreement canary, wired into complete() --------------------------
+
+
+async def test_price_agreement_divergence_logs_never_raises() -> None:
+    catalog = ModelCatalog(models=(_MISPRICED_GPT4O,))
+    router = FakeRouter(
+        responses={_MISPRICED_GPT4O.key: _response(model_id=_MISPRICED_GPT4O.provider_model_id)}
+    )
+    gateway = LiteLLMGateway(router=router, catalog=catalog)
+
+    with capture_logs() as logs:
+        response = await gateway.complete(make_request(), _MISPRICED_GPT4O, timeout_s=30)
+
+    expected_cost = (
+        _MISPRICED_GPT4O.input_cost_per_token * _PROMPT_TOKENS
+        + _MISPRICED_GPT4O.output_cost_per_token * _COMPLETION_TOKENS
+    )
+    assert response.cost.total == expected_cost  # never litellm's number
+
+    warnings = [entry for entry in logs if entry["log_level"] == "warning"]
+    assert len(warnings) == 1
+    warning = warnings[0]
+    assert warning["model_key"] == _MISPRICED_GPT4O.key
+    assert warning["catalog_cost"] == str(expected_cost)
+    assert warning["litellm_cost"] != warning["catalog_cost"]
+
+
+# --- the raw payload never becomes a field, by construction ---------------------
+
+
+def test_llm_response_has_no_raw_field() -> None:
+    """Slice 2's handoff, reconfirmed here: Phase 0's `LLMResponse` has no
+    `raw` field and does not get one in this slice. The repr/persistence
+    scenarios below are satisfied by construction, not by a repr filter."""
+    assert "raw" not in {f.name for f in dataclasses.fields(LLMResponse)}
+
+
+async def test_repr_excludes_the_raw_provider_payload() -> None:
+    sentinel = "RAW-PAYLOAD-MARKER-must-never-reach-llmresponse"
+    router = FakeRouter(
+        responses={
+            CHEAP.key: _response(
+                model_id=CHEAP.provider_model_id, hidden_params={"raw_marker": sentinel}
+            )
+        }
+    )
+    gateway = LiteLLMGateway(router=router, catalog=make_catalog())
+
+    response = await gateway.complete(make_request(), CHEAP, timeout_s=30)
+
+    assert sentinel not in repr(response)
+
+
+async def test_persisted_record_never_carries_the_raw_provider_object() -> None:
+    store = InMemoryRequestStore()
+    router = FakeRouter(responses={CHEAP.key: _response(model_id=CHEAP.provider_model_id)})
+    gateway = LiteLLMGateway(router=router, catalog=make_catalog())
+    response = await gateway.complete(make_request(), CHEAP, timeout_s=30)
+
+    decision = make_decision(chosen=CHEAP, baseline=EXPENSIVE)
+    full_record = RequestRecord(
+        request_id=decision.request_id,
+        received_at=decision.decided_at,
+        decision=decision,
+        response=response,
+        baseline_cost=CostBreakdown.compute(response.usage, EXPENSIVE),
+    )
+    await store.save(full_record)
+
+    fetched = await store.get(full_record.request_id)
+    assert fetched is not None
+    assert fetched.response is not None
+    assert "raw" not in {f.name for f in dataclasses.fields(fetched.response)}
