@@ -1,10 +1,10 @@
-"""Router deployment shape — `build_model_list`.
+"""Router deployment shape — `build_model_list` and `build_fallbacks`.
 
-Everything here asserts over the plain dicts and lists `build_model_list`
-returns, never over a constructed `litellm.Router` instance. That split is
-deliberate: litellm merges its own module-level globals into whatever Router
-you build (`router.py:594-599` appends a wildcard fallback from
-`litellm.default_fallbacks`; `router.py:603` falls back to
+Everything here asserts over the plain dicts and lists `build_model_list` /
+`build_fallbacks` return, never over a constructed `litellm.Router` instance.
+That split is deliberate: litellm merges its own module-level globals into
+whatever Router you build (`router.py:594-599` appends a wildcard fallback
+from `litellm.default_fallbacks`; `router.py:603` falls back to
 `litellm.content_policy_fallbacks` when the argument is empty), so "we did
 not pass it" only proves something about *our own return value*, never about
 a constructed Router. The assertions that must observe litellm's own merging
@@ -22,9 +22,9 @@ from pydantic import SecretStr
 
 from autopilot.config.settings import Settings
 from autopilot.domain.catalog import ModelCatalog
-from autopilot.domain.errors import MissingCredentialsError
+from autopilot.domain.errors import ConfigurationError, MissingCredentialsError
 from autopilot.domain.models import ComplexityTier, ModelConfig, PriceSource
-from autopilot.infrastructure.router_factory import build_model_list
+from autopilot.infrastructure.router_factory import build_fallbacks, build_model_list
 from tests.factories import CHEAP, EXPENSIVE, LOCAL, make_catalog
 
 
@@ -149,3 +149,57 @@ def test_no_dependency_on_ambient_environment(monkeypatch: pytest.MonkeyPatch) -
     cheap_entry = next(entry for entry in model_list if entry["model_name"] == "haiku-3-5")
     assert cheap_entry["litellm_params"]["api_key"] == "sk-anthropic-test"
     assert cheap_entry["litellm_params"]["api_key"] != "sk-ambient-trap"
+
+
+# --- build_fallbacks ---------------------------------------------------------
+
+
+def test_every_fallback_target_outranks_its_source() -> None:
+    """Design-mandated: upward-only re-asserted over `build_fallbacks`'
+    *output*, distinct from `test_model_catalog.py`'s identically named test
+    over `ModelCatalog.fallback_chain` directly — this one exercises the
+    Router-facing shape."""
+    catalog = make_catalog()
+    for entry in build_fallbacks(catalog):
+        ((source_key, targets),) = entry.items()
+        source_tier = catalog.get(source_key).quality_tier
+        for target_key in targets:
+            assert catalog.get(target_key).quality_tier > source_tier
+
+
+def test_fallbacks_match_the_catalog_derived_chain_exactly() -> None:
+    catalog = make_catalog()
+    result = build_fallbacks(catalog)
+    expected = [
+        {model.key: list(catalog.fallback_chain(model.key))}
+        for model in catalog.enabled
+        if catalog.fallback_chain(model.key)
+    ]
+    assert result == expected
+
+
+def test_corrupted_downward_fallback_chain_raises_before_returning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Belt-and-braces (design §5.2). A real `ModelCatalog` cannot itself
+    produce a downward chain — there is no field to corrupt, which is the
+    whole point of `fallback_chain` being the sole producer — so proving this
+    check fires requires monkeypatching the method itself to lie."""
+    catalog = make_catalog()
+
+    def _lying_chain(self: ModelCatalog, key: str) -> tuple[str, ...]:
+        if key == "gpt-4o":  # tier 3 (top): a real chain here would be ()
+            return ("llama3-local",)  # tier 1 — downward, corrupted
+        return ()
+
+    monkeypatch.setattr(ModelCatalog, "fallback_chain", _lying_chain)
+
+    with pytest.raises(ConfigurationError, match="not upward"):
+        build_fallbacks(catalog)
+
+
+def test_build_fallbacks_needs_no_litellm_import() -> None:
+    """Documents the green condition directly: this module's functions never
+    touch litellm, so this whole file can assert with zero vendor import."""
+    assert isinstance(build_fallbacks(make_catalog()), list)
+    assert isinstance(build_model_list(make_catalog(), _credentialed()), list)

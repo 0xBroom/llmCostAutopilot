@@ -128,3 +128,6 @@ red. So the guarantee is structural:
 - [x] The README states in one sentence what LiteLLM does and what this project adds.
 - [x] The single-entrypoint contract is enforced by `make lint` and by CI.
 - [x] A deliberate violation was injected and confirmed to fail with exit code 1.
+- [x] One Router deployment group per catalog key, never per tier — asserted by
+      `tests/unit/test_router_deployments.py::test_one_deployment_group_per_catalog_key`
+      and `::test_each_group_points_at_exactly_its_own_provider_model_id`.

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from autopilot.config.settings import Settings
 from autopilot.domain.catalog import ModelCatalog
 from autopilot.domain.models import (
     CompletionRequest,
@@ -75,6 +76,19 @@ def make_catalog(*, models: tuple[ModelConfig, ...] | None = None) -> ModelCatal
     derivation and invariant tests. Override `models` to test a specific
     catalog shape — every later slice's tests use this."""
     return ModelCatalog(models=models if models is not None else (LOCAL, CHEAP, EXPENSIVE))
+
+
+def make_settings(**overrides: object) -> Settings:
+    """`Settings` for tests, with the `.env` door closed too.
+
+    `_no_ambient_credentials` (conftest, autouse) strips `os.environ`. Only
+    `_env_file=None` also stops pydantic-settings reading the developer's
+    `.env`, which it does as a file and therefore independently of the
+    environment. See `test_make_settings_ignores_the_dotenv_file`. No test in
+    this suite may call `load_settings()` directly — that is the one
+    function allowed to see a real `.env`.
+    """
+    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg,arg-type]
 
 
 def make_request(
