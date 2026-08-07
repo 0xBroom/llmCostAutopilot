@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from autopilot.config.settings import Settings
+from tests.factories import make_settings
 
 
 def _settings(**kwargs: object) -> Settings:
@@ -91,3 +92,20 @@ def test_unknown_variables_are_ignored_not_fatal(monkeypatch: pytest.MonkeyPatch
     would make the service undeployable."""
     monkeypatch.setenv("AUTOPILOT_SOMETHING_WE_REMOVED_LAST_MONTH", "1")
     assert _settings().log_level == "INFO"
+
+
+def test_make_settings_ignores_the_dotenv_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_no_ambient_credentials` (conftest, autouse) strips `os.environ` for
+    every test, but `Settings` reads `.env` as a FILE — independently of the
+    environment, and `monkeypatch.delenv` cannot touch it. A developer with a
+    populated `.env` calling `load_settings()` in a test gets real keys: the
+    test passes locally for the wrong reason and fails in CI, where no `.env`
+    exists. `make_settings` closes that hole with `_env_file=None`, which is
+    why no test in this suite may call `load_settings()` directly.
+    """
+    (tmp_path / ".env").write_text("AUTOPILOT_OPENAI_API_KEY=sk-from-dotenv\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert make_settings().openai_api_key is None
