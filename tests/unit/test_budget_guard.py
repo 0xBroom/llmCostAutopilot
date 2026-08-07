@@ -10,13 +10,20 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
 from autopilot.application.budget import DailySpendGuard
 from autopilot.domain.errors import BudgetExceededError
-from autopilot.domain.models import ComplexityTier, ModelConfig, PriceSource, TokenUsage
-from tests.factories import make_record
+from autopilot.domain.models import (
+    ComplexityTier,
+    ModelConfig,
+    PriceSource,
+    RequestRecord,
+    TokenUsage,
+)
+from tests.factories import make_decision, make_record
 from tests.fakes import FrozenClock, InMemoryRequestStore
 
 # One cent per prompt token, zero output cost, so an exact dollar-and-cents
@@ -109,6 +116,36 @@ async def test_remaining_is_budget_minus_spend_today() -> None:
     guard = _guard(store=store, clock=clock, daily_budget_usd=Decimal("50.00"))
 
     assert await guard.remaining() == Decimal("20.00")
+
+
+async def test_spend_today_excludes_a_failed_request_with_no_response() -> None:
+    """A request that never produced a response (`response=None`, `error`
+    set) has incurred no charge and must not contribute to today's spend.
+    This is the `record.response is not None` branch verify flagged as
+    untested — a partial branch in coverage, self-disclosed at apply time.
+
+    Proves the exclusion is real, not merely untested-but-vacuous: a
+    successful record is seeded alongside the failed one, so a guard that
+    wrongly tried to price the failed record would blow up on
+    `None.cost.total` rather than silently pass.
+    """
+    store = InMemoryRequestStore()
+    clock = FrozenClock(datetime(2026, 8, 7, 12, 0, 0, tzinfo=UTC))
+    await _seed(store, spend=Decimal("30.00"), at=datetime(2026, 8, 7, 1, 0, tzinfo=UTC))
+    failed_request_id = uuid4()
+    failed_at = datetime(2026, 8, 7, 2, 0, tzinfo=UTC)
+    failed_record = RequestRecord(
+        request_id=failed_request_id,
+        received_at=failed_at,
+        decision=make_decision(request_id=failed_request_id, at=failed_at),
+        response=None,
+        baseline_cost=None,
+        error="provider timeout",
+    )
+    await store.save(failed_record)
+    guard = _guard(store=store, clock=clock, daily_budget_usd=Decimal("50.00"))
+
+    assert await guard.spend_today() == Decimal("30.00")
 
 
 async def test_truncated_page_fails_closed() -> None:
