@@ -1,6 +1,5 @@
-"""`infrastructure.model_catalog_loader.load_model_catalog` — YAML I/O and
-price-map resolution (the basic path: no `register_model`, no divergence
-detection — those land in a later commit, see the module docstring).
+"""`infrastructure.model_catalog_loader.load_model_catalog` — YAML I/O,
+price-map resolution, and registration for models the map has never heard of.
 
 All fixtures are written to `tmp_path`. Prices are resolved against the real,
 locally-bundled `litellm==1.95.0` price map (`LITELLM_LOCAL_MODEL_COST_MAP`
@@ -18,9 +17,10 @@ from typing import Any
 
 import pytest
 import yaml
+from structlog.testing import capture_logs
 
 from autopilot.domain.errors import ConfigurationError
-from autopilot.domain.models import PriceSource
+from autopilot.domain.models import ComplexityTier, PriceSource
 from autopilot.infrastructure.litellm_env import litellm
 from autopilot.infrastructure.model_catalog_loader import (
     CATALOG_SCHEMA_VERSION,
@@ -47,6 +47,9 @@ def _gpt_4o_entry(**overrides: Any) -> dict[str, Any]:
     }
     entry.update(overrides)
     return entry
+
+
+# --- price-map resolution (part 1) -----------------------------------------
 
 
 def test_prices_from_the_map_are_exact(tmp_path: Path) -> None:
@@ -164,3 +167,132 @@ def test_negative_price_override_raises_before_any_model_config_is_constructed(
 
 def test_schema_constant_is_one() -> None:
     assert CATALOG_SCHEMA_VERSION == 1
+
+
+# --- registration and divergence (part 2) -----------------------------------
+
+
+def test_local_model_registers_before_lookup(tmp_path: Path) -> None:
+    """`ollama_chat/llama3.1` is absent from litellm 1.95.0's bundled map
+    (verified this session) — the loader must teach it via
+    `litellm.register_model()` before resolving its price."""
+    path = _write_catalog(
+        tmp_path / "models.yaml",
+        [
+            {
+                "key": "llama3-local",
+                "provider": "ollama",
+                "provider_model_id": "ollama_chat/llama3.1",
+                "quality_tier": 1,
+                "max_context_tokens": 8192,
+                "register_pricing": {
+                    "litellm_provider": "ollama",
+                    "mode": "chat",
+                    "input_cost_per_token": 0,
+                    "output_cost_per_token": 0,
+                    "max_input_tokens": 8192,
+                    "max_output_tokens": 8192,
+                },
+            },
+            _gpt_4o_entry(),
+        ],
+    )
+
+    catalog = load_model_catalog(path)
+
+    model = catalog.get("llama3-local")
+    assert model.input_cost_per_token == Decimal("0")
+    assert model.output_cost_per_token == Decimal("0")
+    assert model.price_source == PriceSource.REGISTERED
+    assert model.quality_tier == ComplexityTier.SIMPLE
+
+
+def test_registered_model_re_resolves_and_raises_if_it_still_misses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F4: `register_model` can re-key an entry under a builtin key. Assuming
+    the key we passed landed is the bug — the loader must re-run the same
+    two-step resolution after registering, and fail loudly if it still
+    misses, rather than silently pricing the model at zero."""
+    monkeypatch.setattr(litellm, "register_model", lambda model_cost: None)
+    path = _write_catalog(
+        tmp_path / "models.yaml",
+        [
+            {
+                "key": "phantom-local",
+                "provider": "ollama",
+                "provider_model_id": "ollama_chat/definitely-not-registered",
+                "quality_tier": 1,
+                "max_context_tokens": 8192,
+                "register_pricing": {
+                    "litellm_provider": "ollama",
+                    "mode": "chat",
+                    "input_cost_per_token": 0,
+                    "output_cost_per_token": 0,
+                },
+            }
+        ],
+    )
+
+    with pytest.raises(ConfigurationError, match="phantom-local"):
+        load_model_catalog(path)
+
+
+def test_override_divergence_is_recorded(tmp_path: Path) -> None:
+    """When the overlay and the map disagree, the overlay wins and the loader
+    emits a structured warning naming the model, the field, both values, and
+    the ratio between them."""
+    path = _write_catalog(
+        tmp_path / "models.yaml",
+        [_gpt_4o_entry(price={"input_cost_per_token": "0.0000027"})],
+    )
+
+    with capture_logs() as logs:
+        catalog = load_model_catalog(path)
+
+    assert catalog.get("gpt-4o").input_cost_per_token == Decimal("0.0000027")
+
+    warnings = [entry for entry in logs if entry["log_level"] == "warning"]
+    assert len(warnings) == 1
+    warning = warnings[0]
+    map_input = litellm.model_cost["gpt-4o"]["input_cost_per_token"]
+    assert warning["model_key"] == "gpt-4o"
+    assert warning["field"] == "input_cost_per_token"
+    assert warning["map_value"] == str(Decimal(str(map_input)))
+    assert warning["override_value"] == str(Decimal("0.0000027"))
+    assert warning["ratio"] is not None
+
+
+def test_no_divergence_warning_when_override_matches_the_map(tmp_path: Path) -> None:
+    map_input = litellm.model_cost["gpt-4o"]["input_cost_per_token"]
+    path = _write_catalog(
+        tmp_path / "models.yaml",
+        [_gpt_4o_entry(price={"input_cost_per_token": str(map_input)})],
+    )
+
+    with capture_logs() as logs:
+        load_model_catalog(path)
+
+    assert not [entry for entry in logs if entry["log_level"] == "warning"]
+
+
+# --- the real project catalog ------------------------------------------------
+
+
+def test_the_real_project_catalog_loads_and_derives_the_expected_fallbacks() -> None:
+    """A dedicated, deliberate exception to "no test reads the real
+    config/models.yaml": this is the one place that proves the shipped
+    catalog — not a fixture — actually loads against the installed litellm
+    map, resolves every provider_model_id (directly, via register_pricing, or
+    via an explicit override), and derives the fallback chains the design's
+    worked example names."""
+    repo_root = Path(__file__).resolve().parents[2]
+    catalog = load_model_catalog(repo_root / "config" / "models.yaml")
+
+    assert set(catalog.keys) == {"llama3-local", "haiku-4-5", "gpt-4o", "sonnet-4-5"}
+    assert catalog.baseline.key == "gpt-4o"
+    assert catalog.judge.key == "sonnet-4-5"
+    assert catalog.fallback_chain("llama3-local") == ("haiku-4-5", "gpt-4o", "sonnet-4-5")
+    assert catalog.fallback_chain("haiku-4-5") == ("gpt-4o", "sonnet-4-5")
+    assert catalog.fallback_chain("gpt-4o") == ()
+    assert catalog.fallback_chain("sonnet-4-5") == ()
