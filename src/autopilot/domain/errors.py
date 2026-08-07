@@ -11,6 +11,8 @@ Adapters translate. The core reacts.
 
 from __future__ import annotations
 
+from typing import ClassVar, Final
+
 
 class AutopilotError(Exception):
     """Base class. Catching this catches everything the system raises on purpose."""
@@ -30,6 +32,14 @@ class ModelNotInCatalogError(ConfigurationError):
 
 
 class MissingCredentialsError(ConfigurationError):
+    """No credential was configured for this provider at all.
+
+    Fires at Router-construction time (`build_router`), before any request is
+    routed. Distinct from `AuthenticationFailedError`: that one fires at call
+    time, when a credential that *was* configured is rejected by the provider.
+    Different time, different actor, different remedy — never collapse them.
+    """
+
     def __init__(self, provider: str) -> None:
         super().__init__(f"no credentials configured for provider {provider!r}")
         self.provider = provider
@@ -56,7 +66,16 @@ class BudgetExceededError(AutopilotError):
 
 
 class GatewayError(AutopilotError):
-    """Something went wrong on the provider side of the boundary."""
+    """Something went wrong on the provider side of the boundary.
+
+    `retryable` is a ClassVar, not a field on `infrastructure.error_translation
+    .ErrorRule`. Several distinct litellm exception classes map to the same
+    domain error (e.g. four map to `ProviderUnavailableError`); retryability is
+    a property of the failure *kind*, so it lives once on the kind, not once
+    per mapping rule where four rules could silently disagree with each other.
+    """
+
+    retryable: ClassVar[bool] = False
 
     def __init__(self, message: str, *, model_key: str | None = None) -> None:
         super().__init__(message)
@@ -66,9 +85,13 @@ class GatewayError(AutopilotError):
 class ProviderTimeoutError(GatewayError):
     """The provider did not answer inside the request timeout."""
 
+    retryable: ClassVar[bool] = True
+
 
 class ProviderRateLimitError(GatewayError):
     """429 or equivalent. Retryable, and a signal to the fallback chain."""
+
+    retryable: ClassVar[bool] = True
 
 
 class ContextWindowExceededError(GatewayError):
@@ -80,12 +103,52 @@ class ContextWindowExceededError(GatewayError):
     """
 
 
+class ProviderUnavailableError(GatewayError):
+    """The provider (or the transport to it) is down: 503/502/500 or a
+    connection failure. Retryable — a different deployment, or the same one
+    after cooldown, may well succeed."""
+
+    retryable: ClassVar[bool] = True
+
+
+class AuthenticationFailedError(GatewayError):
+    """A credential that *was* configured was rejected by the provider
+    (401/403). See `MissingCredentialsError` for the distinct, earlier
+    failure of no credential being configured at all."""
+
+
+class ContentFilteredError(GatewayError):
+    """The provider refused or filtered the response on policy grounds,
+    either as an exception at call time or via a filtered `finish_reason` on
+    an otherwise-200 response. Not retryable: retrying the same request
+    against the same policy produces the same refusal."""
+
+
 class ProviderResponseError(GatewayError):
     """The provider answered, but not with something we can use."""
 
 
 class AllProvidersFailedError(GatewayError):
     """Every model in the fallback chain failed. Nothing left to try."""
+
+
+GATEWAY_TAXONOMY: Final[frozenset[type[GatewayError]]] = frozenset(
+    {
+        ProviderTimeoutError,
+        ProviderRateLimitError,
+        ProviderUnavailableError,
+        AuthenticationFailedError,
+        ContextWindowExceededError,
+        ContentFilteredError,
+        ProviderResponseError,
+    }
+)
+"""The exact set of domain errors `infrastructure.error_translation.translate()`
+may produce from a vendor exception. `AllProvidersFailedError` is deliberately
+excluded — it is raised by the gateway after exhausting a fallback chain, never
+by `translate()` on a single exception. This is the set the completeness test
+in `error_translation.py` uses to confirm every taxonomy row has a rule
+pointing at it."""
 
 
 # --- Classification -----------------------------------------------------------

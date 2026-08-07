@@ -102,6 +102,19 @@ by testing adapters that contract tests should be covering, which makes the
 number go up while confidence goes down. Gating only the core means the number
 measures the thing worth measuring.
 
+**The vendor error taxonomy substitutes a completeness test for a percentage.**
+`infrastructure/error_translation.py` is outside the coverage gate, same as
+every other adapter module — but a percentage would happily pass while a new
+litellm exception class silently went unmapped, which is exactly the failure
+mode this table exists to prevent.
+`tests/unit/test_error_translation_completeness.py` reads `litellm/exceptions.py`
+as source (`ast.parse`, no `import litellm`) and asserts every class it finds
+is either in `ERROR_MAP` or named, with a reason, in `DELIBERATELY_UNMAPPED` —
+bidirectionally, so a class the vendor later removes is also caught. Pinned to
+`litellm==1.95.0`, this fails by *naming the new class*, which is a stronger
+and more actionable signal than a coverage number dropping by a fraction of a
+percent.
+
 **No performance assertions in CI.**
 
 The latency budgets in this system are real and are measured — locally, and

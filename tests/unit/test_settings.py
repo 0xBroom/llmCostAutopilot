@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from autopilot.config.settings import Settings
+from tests.factories import make_settings
 
 
 def _settings(**kwargs: object) -> Settings:
@@ -91,3 +93,45 @@ def test_unknown_variables_are_ignored_not_fatal(monkeypatch: pytest.MonkeyPatch
     would make the service undeployable."""
     monkeypatch.setenv("AUTOPILOT_SOMETHING_WE_REMOVED_LAST_MONTH", "1")
     assert _settings().log_level == "INFO"
+
+
+def test_make_settings_ignores_the_dotenv_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_no_ambient_credentials` (conftest, autouse) strips `os.environ` for
+    every test, but `Settings` reads `.env` as a FILE — independently of the
+    environment, and `monkeypatch.delenv` cannot touch it. A developer with a
+    populated `.env` calling `load_settings()` in a test gets real keys: the
+    test passes locally for the wrong reason and fails in CI, where no `.env`
+    exists. `make_settings` closes that hole with `_env_file=None`, which is
+    why no test in this suite may call `load_settings()` directly.
+    """
+    (tmp_path / ".env").write_text("AUTOPILOT_OPENAI_API_KEY=sk-from-dotenv\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert make_settings().openai_api_key is None
+
+
+def test_daily_budget_defaults_to_none() -> None:
+    """No cap configured means the guard that reads this field is never
+    consulted — Phase 2's wiring decision, not this slice's."""
+    assert _settings().daily_budget_usd is None
+
+
+def test_daily_budget_accepts_a_decimal() -> None:
+    assert _settings(daily_budget_usd=Decimal("50.00")).daily_budget_usd == Decimal("50.00")
+
+
+def test_daily_budget_accepts_a_string() -> None:
+    """Environment values are always strings, so this is the exact path env
+    vars take — and it is exact, unlike the float path below."""
+    assert _settings(daily_budget_usd="50.00").daily_budget_usd == Decimal("50.00")
+
+
+def test_daily_budget_rejects_a_float() -> None:
+    """A float budget is a float in the money path, and pydantic would coerce
+    it silently otherwise. This is the fourth Decimal-boundary door — the
+    other three (R1/R2/R3 AST rules, the pricing.py behaviour test) cannot
+    reach a pydantic field coercion."""
+    with pytest.raises(ValidationError, match="never a float"):
+        _settings(daily_budget_usd=25.0)

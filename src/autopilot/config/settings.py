@@ -12,6 +12,7 @@ environment before a test can change it.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator
@@ -59,6 +60,22 @@ class Settings(BaseSettings):
 
     # --- Determinism ----------------------------------------------------------
     random_seed: int = 1337
+
+    # --- Budget -----------------------------------------------------------
+    # `None` means no cap is configured — the guard that reads this field is
+    # simply never consulted (Phase 2's wiring decision, not this field's).
+    daily_budget_usd: Decimal | None = None
+
+    @field_validator("daily_budget_usd", mode="before")
+    @classmethod
+    def _budget_is_never_a_float(cls, v: object) -> object:
+        """A float budget is a float in the money path, and pydantic would
+        coerce it silently otherwise. Strings and Decimals only — this is the
+        fourth Decimal-boundary door; the AST rule and the pricing.py
+        behaviour test cannot reach a pydantic field coercion."""
+        if isinstance(v, float):
+            raise ValueError("daily_budget_usd must be a string or Decimal, never a float")
+        return v
 
     @field_validator("verification_sample_rate")
     @classmethod

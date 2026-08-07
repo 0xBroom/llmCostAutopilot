@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from autopilot.config.settings import Settings
+from autopilot.domain.catalog import ModelCatalog
 from autopilot.domain.models import (
     CompletionRequest,
     ComplexityTier,
@@ -19,6 +21,7 @@ from autopilot.domain.models import (
     LLMResponse,
     Message,
     ModelConfig,
+    PriceSource,
     RequestRecord,
     RoutingDecision,
     SamplingStratum,
@@ -37,6 +40,8 @@ LOCAL = ModelConfig(
     output_cost_per_token=Decimal("0"),
     max_context_tokens=8192,
     api_base="http://localhost:11434",
+    quality_tier=ComplexityTier.SIMPLE,
+    price_source=PriceSource.PRICE_MAP,
 )
 
 CHEAP = ModelConfig(
@@ -46,6 +51,8 @@ CHEAP = ModelConfig(
     input_cost_per_token=Decimal("0.0000008"),
     output_cost_per_token=Decimal("0.000004"),
     max_context_tokens=200_000,
+    quality_tier=ComplexityTier.MODERATE,
+    price_source=PriceSource.PRICE_MAP,
 )
 
 EXPENSIVE = ModelConfig(
@@ -55,9 +62,33 @@ EXPENSIVE = ModelConfig(
     input_cost_per_token=Decimal("0.0000025"),
     output_cost_per_token=Decimal("0.00001"),
     max_context_tokens=128_000,
+    quality_tier=ComplexityTier.COMPLEX,
+    price_source=PriceSource.PRICE_MAP,
+    baseline=True,
+    judge=True,
 )
 
 CATALOG = {m.key: m for m in (LOCAL, CHEAP, EXPENSIVE)}
+
+
+def make_catalog(*, models: tuple[ModelConfig, ...] | None = None) -> ModelCatalog:
+    """A three-tier catalog (LOCAL/CHEAP/EXPENSIVE) ready for fallback-
+    derivation and invariant tests. Override `models` to test a specific
+    catalog shape — every later slice's tests use this."""
+    return ModelCatalog(models=models if models is not None else (LOCAL, CHEAP, EXPENSIVE))
+
+
+def make_settings(**overrides: object) -> Settings:
+    """`Settings` for tests, with the `.env` door closed too.
+
+    `_no_ambient_credentials` (conftest, autouse) strips `os.environ`. Only
+    `_env_file=None` also stops pydantic-settings reading the developer's
+    `.env`, which it does as a file and therefore independently of the
+    environment. See `test_make_settings_ignores_the_dotenv_file`. No test in
+    this suite may call `load_settings()` directly — that is the one
+    function allowed to see a real `.env`.
+    """
+    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg,arg-type]
 
 
 def make_request(

@@ -17,6 +17,7 @@ from autopilot.domain.models import (
     DecisionReason,
     Message,
     ModelConfig,
+    PriceSource,
     PromptFeatures,
     RequestRecord,
     RoutingDecision,
@@ -87,6 +88,23 @@ def test_local_models_are_free_at_the_point_of_use() -> None:
 def test_model_config_rejects_negative_prices() -> None:
     with pytest.raises(ValueError, match="negative unit price"):
         replace(CHEAP, input_cost_per_token=Decimal("-0.1"))
+
+
+def test_model_config_rejects_unknown_provider() -> None:
+    """A typo'd provider must surface as a spelling error here, not as a
+    confusing MissingCredentialsError once it reaches the Router."""
+    with pytest.raises(ValueError, match="unknown provider"):
+        replace(CHEAP, provider="cohere")
+
+
+def test_model_config_rejects_non_positive_max_output_tokens() -> None:
+    with pytest.raises(ValueError, match="max_output_tokens must be positive"):
+        replace(CHEAP, max_output_tokens=0)
+
+
+def test_model_config_rejects_self_referential_judge_fallback() -> None:
+    with pytest.raises(ValueError, match="cannot be its own judge fallback"):
+        replace(CHEAP, judge_fallback=CHEAP.key)
 
 
 # --- tiers and escalation -----------------------------------------------------
@@ -313,4 +331,6 @@ def test_catalog_entries_need_a_positive_context_window() -> None:
             input_cost_per_token=Decimal("0"),
             output_cost_per_token=Decimal("0"),
             max_context_tokens=0,
+            quality_tier=ComplexityTier.SIMPLE,
+            price_source=PriceSource.PRICE_MAP,
         )

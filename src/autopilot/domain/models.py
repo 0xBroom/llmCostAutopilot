@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import IntEnum, StrEnum
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID
 
 Role = Literal["system", "user", "assistant", "tool"]
@@ -82,6 +82,23 @@ class DecisionReason(StrEnum):
     FALLBACK_AFTER_FAILURE = "fallback_after_failure"
 
 
+KNOWN_PROVIDERS: Final[frozenset[str]] = frozenset({"anthropic", "openai", "ollama"})
+
+
+class PriceSource(StrEnum):
+    """Where this model's unit prices came from. Written onto every row's
+    provenance so a price can be traced without re-running the loader.
+
+    Values are vendor-neutral on purpose: they get persisted onto rows via
+    provenance, and swapping the provider layer later must not require a
+    data migration of an enum value.
+    """
+
+    PRICE_MAP = "price_map"  # the gateway's bundled map
+    CATALOG_OVERRIDE = "catalog_override"  # an explicit `price:` block in models.yaml
+    REGISTERED = "registered"  # we taught the gateway this model's price
+
+
 @dataclass(frozen=True, slots=True)
 class ModelConfig:
     """One entry in the model catalog.
@@ -98,19 +115,47 @@ class ModelConfig:
     input_cost_per_token: Decimal
     output_cost_per_token: Decimal
     max_context_tokens: int
+    quality_tier: ComplexityTier
+    price_source: PriceSource
     max_output_tokens: int | None = None
     api_base: str | None = None
+    enabled: bool = True
+    supports_json_mode: bool = False
+    # Declared for #9 (provider baseline harness), read by nothing in this change.
+    expected_latency_ms: int | None = None
+    baseline: bool = False
+    judge: bool = False
+    judge_fallback: str | None = None
 
     def __post_init__(self) -> None:
         if self.input_cost_per_token < 0 or self.output_cost_per_token < 0:
             raise ValueError(f"negative unit price on model {self.key!r}")
         if self.max_context_tokens <= 0:
             raise ValueError(f"max_context_tokens must be positive on model {self.key!r}")
+        if self.provider not in KNOWN_PROVIDERS:
+            raise ValueError(f"unknown provider {self.provider!r} on model {self.key!r}")
+        if self.max_output_tokens is not None and self.max_output_tokens <= 0:
+            raise ValueError(f"max_output_tokens must be positive on model {self.key!r}")
+        if self.judge_fallback is not None and self.judge_fallback == self.key:
+            raise ValueError(f"model {self.key!r} cannot be its own judge fallback")
 
     @property
     def is_free(self) -> bool:
         """True for locally hosted models. Free at the point of use, not free."""
         return self.input_cost_per_token == 0 and self.output_cost_per_token == 0
+
+    @property
+    def fallback_sort_key(self) -> tuple[int, Decimal, str]:
+        """Ordering key for fallback derivation. NOT a price — it is a rank.
+
+        `key` is the final component so the order is total and tests are
+        stable even when two models have identical tier and blended cost.
+        """
+        return (
+            int(self.quality_tier),
+            self.input_cost_per_token + self.output_cost_per_token,
+            self.key,
+        )
 
 
 @dataclass(frozen=True, slots=True)
