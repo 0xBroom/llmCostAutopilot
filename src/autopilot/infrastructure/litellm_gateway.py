@@ -19,6 +19,8 @@ Three properties this module holds itself to, all load-bearing:
    the wrong model's rates onto the row.
 3. **Cost is always computed from the catalog's frozen Decimal prices**, via
    `CostBreakdown.compute` — never from anything litellm reports.
+   `_check_price_agreement` cross-checks the two and logs on divergence; it
+   never feeds its own number back into the returned `LLMResponse`.
 
 `raw` — whatever `router.acompletion()` returns — is a local variable for the
 lifetime of `complete()` and is never assigned to any field. `LLMResponse` has
@@ -45,6 +47,8 @@ from autopilot.domain.models import (
     TokenUsage,
 )
 from autopilot.infrastructure.error_translation import CONTENT_FILTER_FINISH_REASONS, translate
+from autopilot.infrastructure.litellm_env import litellm
+from autopilot.infrastructure.pricing import PRICE_AGREEMENT_RELATIVE_TOLERANCE, to_price
 
 
 @runtime_checkable
@@ -93,7 +97,9 @@ class LiteLLMGateway:
         latency_ms = int((time.perf_counter() - started) * 1000)
 
         answering = self._answering_model(raw, model)
-        return self._normalise(raw, answering, latency_ms)
+        response = self._normalise(raw, answering, latency_ms)
+        self._check_price_agreement(raw, response.cost, answering)
+        return response
 
     # --- internals -------------------------------------------------------
 
@@ -150,3 +156,45 @@ class LiteLLMGateway:
             finish_reason=finish_reason,
             provider_response_id=getattr(raw, "id", None),
         )
+
+    def _check_price_agreement(self, raw: Any, cost: CostBreakdown, answering: ModelConfig) -> None:
+        """Cross-check the catalog's frozen Decimal cost against litellm's
+        own float arithmetic. Never produces money: `LLMResponse.cost` is
+        always `CostBreakdown.compute` from the catalog — this number is
+        compared and discarded; log-and-continue on divergence, never raise.
+
+        Computed from token counts alone via `litellm.cost_per_token`, not
+        from `raw` itself: `litellm.completion_cost()`'s own duck-typing only
+        recognises a `pydantic.BaseModel` or a `dict` as a completion
+        response (verified empirically against a hand-written fake, which it
+        silently prices at zero), so calling it on `raw` here would either
+        require `raw` to be a real vendor object or silently produce a
+        meaningless comparison against our own fakes in tests.
+        """
+        usage = getattr(raw, "usage", None)
+        if usage is None:
+            return
+        try:
+            input_cost, output_cost = litellm.cost_per_token(
+                model=answering.provider_model_id,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+            )
+        except Exception:
+            return  # best-effort canary; a model litellm cannot price is not a gateway failure
+
+        theirs = to_price(
+            input_cost, field="litellm_input_cost", model_key=answering.key
+        ) + to_price(output_cost, field="litellm_output_cost", model_key=answering.key)
+        ours = cost.total
+        if ours == 0 and theirs == 0:
+            return
+
+        tolerance = PRICE_AGREEMENT_RELATIVE_TOLERANCE * max(ours, theirs)
+        if abs(ours - theirs) > tolerance:
+            self._logger.warning(
+                "litellm_gateway.price_agreement_diverges",
+                model_key=answering.key,
+                catalog_cost=str(ours),
+                litellm_cost=str(theirs),
+            )
