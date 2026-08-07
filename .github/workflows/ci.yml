@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# No provider secrets are configured on this repository, deliberately. If a
+# test needs a credential to pass, the test is wrong — see docs/testing.md.
+# The consequence that matters: CI is green on a pull request from a fork.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned to an exact version, not `@v9`. astral-sh/setup-uv stopped
+      # publishing floating major tags after v7 — `@v9` does not resolve and
+      # the job fails before it runs a single step. Bump this deliberately.
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install from the lockfile
+        run: uv sync --locked
+
+      # Three separate steps rather than `make check`, so a red build says
+      # *which* gate failed on the summary page without opening the log.
+      - name: Lint and architecture contracts
+        run: make lint
+
+      - name: Type check
+        run: make typecheck
+
+      - name: Tests
+        run: make test

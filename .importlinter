@@ -1,0 +1,52 @@
+[importlinter]
+root_package = autopilot
+include_external_packages = True
+
+# Advisory architecture rules rot within a month. These are checked by
+# `make lint` and by CI, and they fail the build.
+
+[importlinter:contract:layers]
+name = Layered architecture (dependencies point inward only)
+type = layers
+layers =
+    autopilot.interfaces
+    autopilot.infrastructure
+    autopilot.application
+    autopilot.domain
+exhaustive = false
+
+[importlinter:contract:no-vendor-in-core]
+name = No vendor SDKs or frameworks in domain or application
+type = forbidden
+source_modules =
+    autopilot.domain
+    autopilot.application
+forbidden_modules =
+    litellm
+    fastapi
+    sqlite3
+    sqlalchemy
+    sklearn
+    streamlit
+    httpx
+    openai
+    anthropic
+
+[importlinter:contract:litellm-single-entrypoint]
+name = Only the litellm_env shim may import litellm
+type = forbidden
+source_modules =
+    autopilot
+forbidden_modules =
+    litellm
+ignore_imports =
+    autopilot.infrastructure.litellm_env -> litellm
+
+[importlinter:contract:config-is-a-leaf]
+name = Config is read by the edges, never by the core
+type = forbidden
+source_modules =
+    autopilot.domain
+    autopilot.application
+forbidden_modules =
+    autopilot.config
