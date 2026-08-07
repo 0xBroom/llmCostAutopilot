@@ -26,6 +26,17 @@ MAX_PLAUSIBLE_PRICE_PER_TOKEN: Final[Decimal] = Decimal("1")
 misconfiguration (a botched unit, a per-1K/per-1M value pasted in raw). Reject
 it loudly at load time rather than silently pricing every request wrong."""
 
+PRICE_AGREEMENT_RELATIVE_TOLERANCE: Final[Decimal] = Decimal("1e-9")
+"""Shared by `tests/unit/test_price_agreement.py` (this slice) and, from
+slice 7 onward, `LiteLLMGateway._check_price_agreement`: the tolerance a
+frozen-catalog Decimal cost and litellm's own float-arithmetic
+`completion_cost()` must agree within. Not exact equality — litellm's side is
+float arithmetic (`cost_calculator.py` returns `float`), so `Decimal(str(x))`
+of it will not bit-for-bit equal our exact Decimal product even when the two
+numbers agree to any sane precision. Kept here, next to `to_price`, rather
+than duplicated at each call site — the map is pinned, so the tolerance is a
+property of the conversion, not of any one caller."""
+
 _ACCEPTED_TYPES: Final[tuple[type, ...]] = (int, float, str, Decimal)
 
 
