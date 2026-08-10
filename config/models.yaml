@@ -28,6 +28,10 @@ models:
     supports_json_mode: true
     max_context_tokens: 8192
     max_output_tokens: 2048
+    # p50 from baseline run artifacts/baseline/2026-08-10 (repeats=3,
+    # concurrency=2). NOTE: p95 was 19.4s, far over the 8s SLO — see that run's
+    # outputs.md "What we learned". Local is opt-in (AUTOPILOT_DISABLE_LOCAL).
+    expected_latency_ms: 3582
     # litellm 1.95.0's map has "ollama/llama3" but NOT "ollama_chat/llama3.1",
     # so we teach it. Without this block the loader raises rather than
     # defaulting the price to zero.
@@ -45,6 +49,7 @@ models:
     provider_model_id: anthropic/claude-haiku-4-5
     quality_tier: 2
     supports_json_mode: true
+    expected_latency_ms: 1534  # p50, same baseline run (2026-08-10)
     # No price block: resolved from the bundled map. Note the map key is
     # "claude-haiku-4-5" WITHOUT the "anthropic/" prefix — the loader's
     # two-step resolution handles that.
@@ -55,6 +60,7 @@ models:
     provider_model_id: openai/gpt-4o
     quality_tier: 3
     supports_json_mode: true
+    expected_latency_ms: 1243  # p50, same baseline run (2026-08-10)
     baseline: true
 
   # --- tier 3: the judge ------------------------------------------------------
@@ -63,6 +69,7 @@ models:
     provider_model_id: anthropic/claude-sonnet-4-5
     quality_tier: 3
     supports_json_mode: true
+    expected_latency_ms: 2312  # p50, same baseline run (2026-08-10)
     judge: true
     judge_fallback: gpt-4o
     # No price block: resolved from the bundled map ("claude-sonnet-4-5" is
