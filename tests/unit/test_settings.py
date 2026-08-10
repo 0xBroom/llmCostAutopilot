@@ -137,8 +137,8 @@ def test_daily_budget_rejects_a_float() -> None:
         _settings(daily_budget_usd=25.0)
 
 
-def test_baseline_max_concurrency_defaults_to_four() -> None:
-    assert _settings().baseline_max_concurrency == 4
+def test_baseline_max_concurrency_defaults_to_two() -> None:
+    assert _settings().baseline_max_concurrency == 2
 
 
 def test_baseline_max_concurrency_overridable_by_env(monkeypatch: pytest.MonkeyPatch) -> None:

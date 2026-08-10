@@ -122,6 +122,7 @@ class CallResult:
 
     prompt_id: str
     model_key: str
+    response_model_key: str | None  # who ACTUALLY answered; None when the cell failed
     tier: int
     repeat_index: int
     ok: bool
@@ -176,6 +177,7 @@ async def run_matrix(
                 return CallResult(
                     prompt_id=prompt.id,
                     model_key=model.key,
+                    response_model_key=None,
                     tier=tier,
                     repeat_index=repeat_index,
                     ok=False,
@@ -187,9 +189,39 @@ async def run_matrix(
                     error=str(exc),
                 )
 
+        answering = response.model_key
+        if answering != model.key:
+            # A baseline runs with fallbacks OFF (see main), so this must not
+            # happen. If it ever does, a *different* model answered and this
+            # cell's tokens/cost/latency are not the requested model's at all —
+            # record the substitution as a failure rather than silently
+            # mislabelling another model's numbers as this one's.
+            log.warning(
+                "baseline.substituted",
+                prompt_id=prompt.id,
+                requested=model.key,
+                answered=answering,
+                repeat_index=repeat_index,
+            )
+            return CallResult(
+                prompt_id=prompt.id,
+                model_key=model.key,
+                response_model_key=answering,
+                tier=tier,
+                repeat_index=repeat_index,
+                ok=False,
+                output=None,
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_cost=Decimal(0),
+                latency_ms=None,
+                error=f"answered by {answering!r}, not the requested model (fallback disabled)",
+            )
+
         return CallResult(
             prompt_id=prompt.id,
             model_key=model.key,
+            response_model_key=answering,
             tier=tier,
             repeat_index=repeat_index,
             ok=True,
@@ -379,6 +411,7 @@ def _result_to_json(result: CallResult) -> dict[str, Any]:
     return {
         "prompt_id": result.prompt_id,
         "model_key": result.model_key,
+        "response_model_key": result.response_model_key,
         "tier": result.tier,
         "repeat_index": result.repeat_index,
         "ok": result.ok,
@@ -581,7 +614,12 @@ def main(argv: list[str] | None = None) -> int:
         print(guard_error, file=sys.stderr)
         return 1
 
-    router = build_router(catalog, settings)
+    # Fallbacks OFF: a baseline measures each model in isolation. With them on,
+    # a model that times out or errors is silently answered by a costlier one
+    # and its numbers get recorded under the wrong key (see run_matrix's
+    # substitution guard) — which is exactly the contamination this harness
+    # must not produce.
+    router = build_router(catalog, settings, with_fallbacks=False)
     gateway = LiteLLMGateway(router=router, catalog=catalog)
 
     results = asyncio.run(

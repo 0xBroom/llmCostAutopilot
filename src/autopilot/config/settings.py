@@ -82,7 +82,11 @@ class Settings(BaseSettings):
     # unbounded, a wide corpus against every enabled model can open enough
     # simultaneous provider connections to trip rate limits that a normal
     # request load never would.
-    baseline_max_concurrency: int = Field(default=4, gt=0)
+    # 2, not a bigger number, on purpose: the overflow prompt is ~12k input
+    # tokens, and even two of those in flight against a 30k-TPM tier stays
+    # under the limit. A higher default reproduces the self-inflicted 429s the
+    # #9 harness exists to avoid. Raise it via env on a higher-tier account.
+    baseline_max_concurrency: int = Field(default=2, gt=0)
     # Real spend from a benchmark run is only known *after* it completes —
     # unlike `daily_budget_usd`, there is no request to refuse ahead of time.
     # The harness gates on this threshold post-hoc: exceeding it without

@@ -90,6 +90,20 @@ def test_no_wildcard_fallback_entry() -> None:
     assert all("*" not in entry for entry in router.fallbacks or [])
 
 
+def test_fallbacks_can_be_disabled_for_isolated_measurement() -> None:
+    """`with_fallbacks=False` builds the same deployments with no fallback
+    chain — the provider baseline harness (#9) measures each model in
+    isolation, and a silent substitution would contaminate its numbers.
+    Passing `[]` (falsy, not `None`) keeps `router.py:594-599` from appending
+    the wildcard global, so the instance genuinely has none. The default still
+    carries them, so the flag is demonstrably what changed it."""
+    without = build_router(make_catalog(), _credentialed(), with_fallbacks=False)
+    assert not without.fallbacks
+
+    default = build_router(make_catalog(), _credentialed())
+    assert default.fallbacks
+
+
 def test_retry_and_cooldown_configuration() -> None:
     router = build_router(make_catalog(), _credentialed())
     assert router.num_retries == ROUTER_NUM_RETRIES

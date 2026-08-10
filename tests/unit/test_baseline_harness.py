@@ -53,6 +53,7 @@ def _call(
     *,
     prompt_id: str = "p1",
     model_key: str = "m",
+    response_model_key: str | None = None,
     tier: int = 1,
     repeat_index: int = 0,
     ok: bool = True,
@@ -66,6 +67,7 @@ def _call(
     return CallResult(
         prompt_id=prompt_id,
         model_key=model_key,
+        response_model_key=response_model_key if response_model_key is not None else model_key,
         tier=tier,
         repeat_index=repeat_index,
         ok=ok,
@@ -120,6 +122,31 @@ async def test_run_matrix_executes_every_prompt_model_repeat_cell() -> None:
     assert len(results) == len(models) * len(prompts) * 2
     assert gateway.call_count == len(results)
     assert all(r.ok for r in results)
+    assert all(r.response_model_key == r.model_key for r in results)  # no substitution
+
+
+async def test_run_matrix_marks_a_substituted_answer_as_a_failure() -> None:
+    # fallback_to makes the response report a DIFFERENT model_key, simulating a
+    # fallback firing even though a baseline builds the router with fallbacks
+    # off. Another model's tokens/cost must never be recorded under the
+    # requested key — the cell is a failure, and who really answered is kept.
+    gateway = FakeLLMGateway(fallback_to={CHEAP.key: EXPENSIVE})
+    results = await run_matrix(
+        gateway=gateway,
+        models=[CHEAP],
+        prompts=[_prompt()],
+        repeats=1,
+        timeout_s=5.0,
+        max_concurrency=2,
+    )
+
+    assert len(results) == 1
+    r = results[0]
+    assert r.model_key == CHEAP.key
+    assert r.response_model_key == EXPENSIVE.key
+    assert r.ok is False
+    assert r.total_cost == Decimal(0)
+    assert "not the requested model" in (r.error or "")
 
 
 async def test_run_matrix_survives_a_failure_on_one_model_without_aborting() -> None:

@@ -15,9 +15,7 @@
 #                                   register_pricing below.
 #   anthropic/claude-haiku-4-5  -> resolves bare, as "claude-haiku-4-5".
 #   openai/gpt-4o               -> resolves bare, as "gpt-4o".
-#   anthropic/claude-sonnet-4-5 -> resolves bare, as "claude-sonnet-4-5"
-#                                   (also carries a negotiated-rate override
-#                                   below, independent of resolution).
+#   anthropic/claude-sonnet-4-5 -> resolves bare, as "claude-sonnet-4-5".
 
 version: 1
 
@@ -67,11 +65,8 @@ models:
     supports_json_mode: true
     judge: true
     judge_fallback: gpt-4o
-    # Negotiated rate, deliberately disagreeing with the bundled map.
-    # price_source becomes CATALOG_OVERRIDE and the divergence is logged at
-    # load — this model resolves against the map on its own ("claude-sonnet-
-    # 4-5" is bare-key present), the override is a business decision, not a
-    # resolution workaround.
-    price:
-      input_cost_per_token: "0.0000027"
-      output_cost_per_token: "0.0000135"
+    # No price block: resolved from the bundled map ("claude-sonnet-4-5" is
+    # bare-key present). An earlier override (0.0000027/0.0000135) was carried
+    # as a "negotiated rate" but was in fact a stale price — the baseline
+    # harness (#9) surfaced the map disagreeing by 10% via the price-agreement
+    # canary, and there is no actual discount, so the override was removed.
