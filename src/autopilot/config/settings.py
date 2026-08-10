@@ -87,13 +87,14 @@ class Settings(BaseSettings):
     # under the limit. A higher default reproduces the self-inflicted 429s the
     # #9 harness exists to avoid. Raise it via env on a higher-tier account.
     baseline_max_concurrency: int = Field(default=2, gt=0)
-    # Real spend from a benchmark run is only known *after* it completes —
-    # unlike `daily_budget_usd`, there is no request to refuse ahead of time.
-    # The harness gates on this threshold post-hoc: exceeding it without
-    # `--confirm-spend` blocks writing the run's artifacts.
+    # The harness estimates a conservative upper bound on run cost BEFORE any
+    # provider call and refuses to run when it exceeds this threshold without
+    # `--confirm-spend` — a pre-flight gate that spends nothing when it blocks,
+    # not a post-hoc one. See baseline.py's module docstring.
     baseline_confirm_spend_threshold_usd: Decimal = Field(default=Decimal("1.00"))
-    # Skips ollama/local models from the benchmark matrix. Useful on a
-    # machine with no local model server running.
+    # Opt-OUT of local models: llama3-local is in the benchmark matrix by
+    # default; set AUTOPILOT_DISABLE_LOCAL=true to exclude it (the documented
+    # demo default, since local p95 exceeds the latency SLO).
     disable_local: bool = False
 
     @field_validator("baseline_confirm_spend_threshold_usd", mode="before")

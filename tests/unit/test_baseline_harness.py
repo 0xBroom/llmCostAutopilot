@@ -185,6 +185,27 @@ async def test_run_matrix_survives_a_timeout_error() -> None:
     assert "too long" in (results[0].error or "")
 
 
+async def test_run_matrix_survives_a_non_domain_exception() -> None:
+    # A malformed provider payload surfaces as a bare ValueError/IndexError, not
+    # an AutopilotError. The survival guarantee must hold against ANY exception,
+    # so the cell is still recorded and its siblings still run.
+    gateway = FakeLLMGateway(errors={CHEAP.key: ValueError("malformed payload")})
+    results = await run_matrix(
+        gateway=gateway,
+        models=[LOCAL, CHEAP],
+        prompts=[_prompt()],
+        repeats=1,
+        timeout_s=5.0,
+        max_concurrency=2,
+    )
+
+    assert len(results) == 2
+    cheap = next(r for r in results if r.model_key == CHEAP.key)
+    local = next(r for r in results if r.model_key == LOCAL.key)
+    assert cheap.ok is False and "malformed payload" in (cheap.error or "")
+    assert local.ok is True
+
+
 async def test_run_matrix_bounds_concurrency() -> None:
     inner = FakeLLMGateway()
     tracker = _ConcurrencyTrackingGateway(inner, delay_s=0.02)
@@ -279,6 +300,18 @@ def test_aggregate_by_model_groups_and_computes_failures() -> None:
     assert by_key["a"].total_tokens_out == 50  # only the two ok calls
     assert by_key["b"].failures == 0
     assert by_key["b"].total_calls == 1
+
+
+def test_avg_cost_per_req_divides_by_successful_calls_only() -> None:
+    results = [
+        _call(model_key="a", ok=True, total_cost=Decimal("0.10")),
+        _call(model_key="a", ok=True, total_cost=Decimal("0.20")),
+        _call(model_key="a", ok=False, output=None, error="boom", total_cost=Decimal("0")),
+    ]
+
+    a = {s.model_key: s for s in aggregate_by_model(results)}["a"]
+
+    assert a.avg_cost_per_req == Decimal("0.15")  # $0.30 / 2 ok calls, not / 3 total
 
 
 # --- estimate_run_cost -------------------------------------------------------------
@@ -394,6 +427,19 @@ def test_write_outputs_md_has_a_section_per_prompt_and_the_learnings_template(
     assert "FAILED: boom" in content
     assert "## What we learned" in content
     assert content.count("TODO") >= 2
+
+
+def test_write_outputs_md_renders_empty_successful_output_not_as_failure(tmp_path: Path) -> None:
+    # An empty-string completion is a real success, not a failure.
+    prompts = [_prompt(id="p1")]
+    results = [_call(prompt_id="p1", model_key="a", ok=True, output="", error=None)]
+    path = tmp_path / "outputs.md"
+
+    write_outputs_md(results, prompts, path=path)
+
+    content = path.read_text(encoding="utf-8")
+    assert "FAILED" not in content
+    assert "(empty output)" in content
 
 
 def test_write_artifacts_creates_the_expected_files(tmp_path: Path) -> None:

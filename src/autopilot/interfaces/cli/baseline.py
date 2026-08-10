@@ -50,7 +50,6 @@ from structlog.stdlib import BoundLogger
 from autopilot.application.ports import Clock, LLMGateway
 from autopilot.config.settings import Settings, load_settings
 from autopilot.domain.catalog import ModelCatalog
-from autopilot.domain.errors import AutopilotError
 from autopilot.domain.models import CompletionRequest, Message, ModelConfig
 from autopilot.infrastructure.litellm_gateway import LiteLLMGateway
 from autopilot.infrastructure.model_catalog_loader import load_model_catalog
@@ -147,11 +146,14 @@ async def run_matrix(
     """Run every (prompt, model, repeat) cell, bounded to `max_concurrency`
     concurrent provider calls via an `asyncio.Semaphore`.
 
-    A cell that raises `AutopilotError` (any domain gateway error — timeout,
-    context overflow, rate limit, ...) or times out is recorded as a failed
+    A cell that raises ANY exception — a domain `AutopilotError`, a timeout, or
+    an unexpected `IndexError`/`AttributeError` from a malformed provider
+    payload the gateway did not translate — is recorded as a failed
     `CallResult` with the error captured as text. It never aborts the other
-    cells: that survival property is what makes `of1-overflow` a useful
-    fixture instead of a crash.
+    cells: that survival property (the whole point of the harness) must hold
+    against every failure mode, not only the ones the domain names. Catching
+    broad `Exception` is deliberate here; `BaseException` (KeyboardInterrupt,
+    SystemExit) is intentionally left to propagate.
     """
     log = logger if logger is not None else structlog.get_logger(__name__)
     semaphore = asyncio.Semaphore(max_concurrency)
@@ -166,7 +168,7 @@ async def run_matrix(
         async with semaphore:
             try:
                 response = await gateway.complete(request, model, timeout_s=timeout_s)
-            except (AutopilotError, TimeoutError) as exc:
+            except Exception as exc:  # per-cell survival is the contract (see docstring)
                 log.warning(
                     "baseline.cell_failed",
                     prompt_id=prompt.id,
@@ -301,9 +303,13 @@ def aggregate_by_model(results: Sequence[CallResult]) -> list[ModelStats]:
         completions = [
             float(r.completion_tokens) for r in ok_rows if r.completion_tokens is not None
         ]
-        total_cost = sum((r.total_cost for r in rows), Decimal(0))
+        # Cost per SUCCESSFUL request: dividing real spend by all attempts
+        # (including zero-cost failures) would understate the per-call cost the
+        # baseline exists to compare. Failed cells cost nothing and are not asks
+        # that returned an answer.
+        ok_cost = sum((r.total_cost for r in ok_rows), Decimal(0))
         total_calls = len(rows)
-        avg_cost = total_cost / total_calls if total_calls else Decimal(0)
+        avg_cost = ok_cost / len(ok_rows) if ok_rows else Decimal(0)
         stats.append(
             ModelStats(
                 model_key=key,
@@ -487,7 +493,14 @@ def write_outputs_md(
                 continue
             lines.append(f"### {r.model_key}")
             lines.append("")
-            lines.append(r.output if r.ok and r.output else f"FAILED: {r.error}")
+            if r.ok:
+                # An empty string is a real (if unusual) success — a refusal, or
+                # a prompt whose correct answer is empty. Do NOT render it as a
+                # failure; label it explicitly so the reader sees the model
+                # returned nothing rather than errored.
+                lines.append(r.output if r.output else "(empty output)")
+            else:
+                lines.append(f"FAILED: {r.error}")
             lines.append("")
 
     lines.append("## What we learned")
@@ -545,8 +558,9 @@ class _SystemClock:
 def _select_models(
     catalog: ModelCatalog, settings: Settings, models_arg: str | None
 ) -> list[ModelConfig]:
-    """Enabled models, minus local models if `--disable-local` is set, minus
-    anything not named by `--models` (when given)."""
+    """Enabled models, minus local models when `settings.disable_local` is set
+    (env `AUTOPILOT_DISABLE_LOCAL`; there is no CLI flag for it), minus anything
+    not named by `--models` (when given)."""
     models = list(catalog.enabled)
     if settings.disable_local:
         models = [m for m in models if m.provider != "ollama"]
@@ -601,6 +615,27 @@ def main(argv: list[str] | None = None) -> int:
     catalog = load_model_catalog(settings.model_catalog_path)
     models = _select_models(catalog, settings, args.models)
     prompts = load_prompts(args.prompts)
+
+    if not models:
+        # Refuse rather than run an empty matrix: write_artifacts would otherwise
+        # overwrite <artifacts_dir>/baseline/<today>/ with empty files and exit
+        # 0, silently destroying a committed reference run dated today.
+        print(
+            "no models selected — check --models and AUTOPILOT_DISABLE_LOCAL. "
+            "Refusing to run an empty matrix.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if catalog.baseline.key not in {m.key for m in models}:
+        # The out-tok ratio column normalises against the baseline model; without
+        # it every ratio is 'n/a'. Surface that instead of shipping a silently
+        # meaningless summary.
+        print(
+            f"warning: baseline model {catalog.baseline.key!r} is not in the "
+            "selected matrix — the out-tok ratio column will be 'n/a'.",
+            file=sys.stderr,
+        )
 
     estimated_spend = estimate_run_cost(models=models, prompts=prompts, repeats=args.repeats)
     print(f"estimated run cost (conservative upper bound): ${estimated_spend}")

@@ -30,7 +30,8 @@ models:
     max_output_tokens: 2048
     # p50 from baseline run artifacts/baseline/2026-08-10 (repeats=3,
     # concurrency=2). NOTE: p95 was 19.4s, far over the 8s SLO — see that run's
-    # outputs.md "What we learned". Local is opt-in (AUTOPILOT_DISABLE_LOCAL).
+    # outputs.md "What we learned". Local runs by default; set
+    # AUTOPILOT_DISABLE_LOCAL=true to exclude it (the documented demo default).
     expected_latency_ms: 3582
     # litellm 1.95.0's map has "ollama/llama3" but NOT "ollama_chat/llama3.1",
     # so we teach it. Without this block the loader raises rather than
