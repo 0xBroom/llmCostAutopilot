@@ -77,6 +77,33 @@ class Settings(BaseSettings):
             raise ValueError("daily_budget_usd must be a string or Decimal, never a float")
         return v
 
+    # --- Baseline harness (#9) -------------------------------------------------
+    # A benchmark run fans out prompt x model x repeats concurrently. Left
+    # unbounded, a wide corpus against every enabled model can open enough
+    # simultaneous provider connections to trip rate limits that a normal
+    # request load never would.
+    baseline_max_concurrency: int = Field(default=4, gt=0)
+    # Real spend from a benchmark run is only known *after* it completes —
+    # unlike `daily_budget_usd`, there is no request to refuse ahead of time.
+    # The harness gates on this threshold post-hoc: exceeding it without
+    # `--confirm-spend` blocks writing the run's artifacts.
+    baseline_confirm_spend_threshold_usd: Decimal = Field(default=Decimal("1.00"))
+    # Skips ollama/local models from the benchmark matrix. Useful on a
+    # machine with no local model server running.
+    disable_local: bool = False
+
+    @field_validator("baseline_confirm_spend_threshold_usd", mode="before")
+    @classmethod
+    def _baseline_threshold_is_never_a_float(cls, v: object) -> object:
+        """Same rule, same reason as `_budget_is_never_a_float`: this value
+        gates real money and must never round-trip through binary floating
+        point. Strings and Decimals only."""
+        if isinstance(v, float):
+            raise ValueError(
+                "baseline_confirm_spend_threshold_usd must be a string or Decimal, never a float"
+            )
+        return v
+
     @field_validator("verification_sample_rate")
     @classmethod
     def _sampling_must_stay_economic(cls, v: float) -> float:
