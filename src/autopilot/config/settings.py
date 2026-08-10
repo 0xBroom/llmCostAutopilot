@@ -77,6 +77,38 @@ class Settings(BaseSettings):
             raise ValueError("daily_budget_usd must be a string or Decimal, never a float")
         return v
 
+    # --- Baseline harness (#9) -------------------------------------------------
+    # A benchmark run fans out prompt x model x repeats concurrently. Left
+    # unbounded, a wide corpus against every enabled model can open enough
+    # simultaneous provider connections to trip rate limits that a normal
+    # request load never would.
+    # 2, not a bigger number, on purpose: the overflow prompt is ~12k input
+    # tokens, and even two of those in flight against a 30k-TPM tier stays
+    # under the limit. A higher default reproduces the self-inflicted 429s the
+    # #9 harness exists to avoid. Raise it via env on a higher-tier account.
+    baseline_max_concurrency: int = Field(default=2, gt=0)
+    # The harness estimates a conservative upper bound on run cost BEFORE any
+    # provider call and refuses to run when it exceeds this threshold without
+    # `--confirm-spend` — a pre-flight gate that spends nothing when it blocks,
+    # not a post-hoc one. See baseline.py's module docstring.
+    baseline_confirm_spend_threshold_usd: Decimal = Field(default=Decimal("1.00"))
+    # Opt-OUT of local models: llama3-local is in the benchmark matrix by
+    # default; set AUTOPILOT_DISABLE_LOCAL=true to exclude it (the documented
+    # demo default, since local p95 exceeds the latency SLO).
+    disable_local: bool = False
+
+    @field_validator("baseline_confirm_spend_threshold_usd", mode="before")
+    @classmethod
+    def _baseline_threshold_is_never_a_float(cls, v: object) -> object:
+        """Same rule, same reason as `_budget_is_never_a_float`: this value
+        gates real money and must never round-trip through binary floating
+        point. Strings and Decimals only."""
+        if isinstance(v, float):
+            raise ValueError(
+                "baseline_confirm_spend_threshold_usd must be a string or Decimal, never a float"
+            )
+        return v
+
     @field_validator("verification_sample_rate")
     @classmethod
     def _sampling_must_stay_economic(cls, v: float) -> float:

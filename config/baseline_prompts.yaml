@@ -1,0 +1,206 @@
+# The provider baseline harness's prompt corpus (#9).
+#
+# Fourteen prompts spanning three quality tiers plus a deliberate overflow
+# case. Every prompt is either inline (`prompt:`) or points at a fixture file
+# (`prompt_file:`, resolved relative to this file's own directory — never the
+# process's working directory, so the corpus loads the same way regardless of
+# where `python -m autopilot.interfaces.cli.baseline` is invoked from).
+#
+# `tier` mirrors `ComplexityTier` (1 = simple, 2 = moderate, 3 = complex) and
+# is `null` for `of1-overflow`, which is not a routing-tier exercise at all —
+# it exists to prove the harness survives a per-cell provider failure
+# (llama3-local's 8192-token context window) without aborting the run.
+version: 1
+
+defaults:
+  max_tokens: 512
+  temperature: 0
+
+prompts:
+  # --- tier 1: simple, mechanical ---------------------------------------------
+  - id: t1-json-reformat
+    tier: 1
+    category: reformat
+    prompt: |
+      The following text is meant to be JSON but has syntax errors. Fix it so
+      it is valid JSON. Return ONLY the corrected JSON, with no explanation.
+
+      {
+        name: "Ada Lovelace",
+        "role": 'engineer',
+        "active": True,
+        "projects": ["analytical-engine", "notes-g",],
+        "years_active": 1843-1852,
+      }
+
+  - id: t2-date-extract
+    tier: 1
+    category: extraction
+    prompt: |
+      Extract the date the issue was first reported, as ISO-8601 (YYYY-MM-DD).
+      Return ONLY the date, with no explanation.
+
+      Ticket #4471: A customer wrote in on the morning of March 3rd, 2024 to
+      say that their dashboard had been showing stale data since the previous
+      Friday. Support triaged it the same day and escalated to engineering on
+      March 5th.
+
+  - id: t3-list-to-csv
+    tier: 1
+    category: reformat
+    prompt: |
+      Convert the following list of employees into CSV with exactly this
+      header: name,department,years. Return ONLY the CSV, no explanation, no
+      markdown code fences.
+
+      - Maria Chen, Engineering, 6 years
+      - Tomás Alvarez, Sales, 2 years
+      - Priya Nair, Engineering, 11 years
+      - Jonas Weber, Support, 4 years
+
+  - id: t4-context-qa
+    tier: 1
+    category: grounded-qa
+    prompt: |
+      Answer the question using ONLY the paragraph below. If the paragraph
+      does not contain the answer, say "not in the text". Answer in one short
+      sentence.
+
+      Paragraph: The lighthouse at Cape Verrick was built in 1887 by the
+      regional maritime authority to mark the reef that had sunk eleven ships
+      in the preceding decade. It was automated in 1971 and decommissioned in
+      2003 after satellite navigation made it redundant.
+
+      Question: In what year was the lighthouse automated?
+
+  # --- tier 2: moderate, requires some judgment -------------------------------
+  - id: m1-summarize
+    tier: 2
+    category: summarization
+    prompt: |
+      Summarize the following paragraph in EXACTLY one sentence.
+
+      The regional transit authority announced Tuesday that it will extend
+      the Blue Line by four stations, adding service to two neighborhoods
+      that have lacked direct rail access since the line first opened in
+      1974. Construction is expected to begin next spring and take three
+      years, funded jointly by state and federal infrastructure grants. Local
+      business owners along the proposed route have expressed mixed views:
+      some anticipate a boost in foot traffic once the stations open, while
+      others worry about years of construction noise and lost parking in the
+      meantime.
+
+  - id: m2-ticket-classify
+    tier: 2
+    category: classification
+    prompt: |
+      Classify the support ticket below into exactly one category: billing,
+      technical, or account. Return ONLY the category label, lowercase, with
+      no explanation.
+
+      Ticket: "I was charged twice for my subscription this month and I can't
+      figure out how to see my past invoices anywhere in the app."
+
+  - id: m3-email-extract
+    tier: 2
+    category: struct-extract
+    prompt: |
+      Extract the following fields from the email below and return them as a
+      JSON object with exactly these keys: company, amount_usd, due_date.
+      amount_usd must be a number, not a string. Return ONLY the JSON object.
+
+      Email:
+      Subject: Invoice #8823 from Riverside Supply Co.
+
+      Hi team, please find attached invoice #8823 for $4,250.00, due by
+      September 15, 2024. Let us know if you have any questions.
+
+      Best,
+      Accounts Receivable, Riverside Supply Co.
+
+  - id: m4-review-sentiment
+    tier: 2
+    category: classification
+    prompt: |
+      Read the product review below. Classify its sentiment as exactly one of:
+      positive, negative, mixed. Then give a one-line rationale. Format your
+      answer as two lines: the label, then the rationale.
+
+      Review: "The battery life is incredible and it charges fast, but the
+      case scratches so easily that mine looked beat up after a week. Torn on
+      whether I'd buy it again."
+
+  # --- tier 3: complex, needs real reasoning ----------------------------------
+  - id: h1-logic-constraints
+    tier: 3
+    category: multi-constraint
+    prompt: |
+      Five colleagues — Ana, Ben, Cyrus, Dana, and Eli — sit in a row of five
+      seats numbered 1 to 5, left to right. Determine the exact seat number
+      for each person from these constraints, and show the final seat
+      assignment as a numbered list:
+
+      1. Ana sits somewhere to the left of Ben.
+      2. Cyrus does not sit in seat 1 or seat 5.
+      3. Dana sits immediately next to Eli (either side).
+      4. Ben sits in seat 4.
+      5. Eli sits in seat 1.
+
+  - id: h2-ambiguous-judgment
+    tier: 3
+    category: judgment
+    prompt: |
+      A ten-person team must choose between two office layouts for their next
+      lease: Option A is an open floor plan that is 20% cheaper and fits the
+      whole team on one floor, but has almost no private space for calls or
+      focused work. Option B is a mix of small private offices and shared
+      space, costs more, and splits the team across two floors connected by a
+      shared stairwell.
+
+      Recommend ONE option. Name the single biggest tradeoff between them, and
+      describe the specific condition under which your recommendation would
+      flip to the other option.
+
+  - id: h3-multistep-math
+    tier: 3
+    category: reasoning
+    prompt: |
+      A factory runs two production lines. Line A produces 18 units per hour
+      and runs for 6.5 hours today. Line B produces 25% more units per hour
+      than Line A, but starts 90 minutes later than Line A and runs until the
+      same end of shift as Line A. Each unit weighs 2.4 kg. What is the total
+      weight, in kilograms, of everything produced by both lines today? Show
+      your work, then give the final answer on its own line as: "Answer: X kg".
+
+  - id: h4-code-bug
+    tier: 3
+    category: reasoning
+    prompt: |
+      Find the bug in the following Python function and explain, in 2-3
+      sentences, exactly why it produces wrong results and under what
+      condition the bug manifests.
+
+      ```python
+      def running_totals(readings, buffer=[]):
+          for value in readings:
+              buffer.append(value)
+          totals = []
+          running = 0
+          for value in buffer:
+              running += value
+              totals.append(running)
+          return totals
+      ```
+
+  # --- long context and overflow ----------------------------------------------
+  - id: lc1-synthesis
+    tier: 3
+    category: long-context
+    prompt_file: baseline_fixtures/lc1_document.txt
+    max_tokens: 400
+
+  - id: of1-overflow
+    tier: null
+    category: overflow
+    prompt_file: baseline_fixtures/of1_overflow.txt
+    max_tokens: 300

@@ -10,8 +10,16 @@ data/
 *.db
 *.db-wal
 *.db-shm
-artifacts/
 reports/
+
+# Benchmark runs are transient and ignored, EXCEPT the one committed baseline
+# reference run (#9) — it must live in the repo so the numbers are readable
+# without credentials. Re-including a path needs its parent dirs re-included
+# first, then the siblings re-ignored.
+artifacts/*
+!artifacts/baseline/
+artifacts/baseline/*
+!artifacts/baseline/2026-08-10/
 
 # Python
 .venv/

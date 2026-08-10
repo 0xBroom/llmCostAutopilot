@@ -15,9 +15,7 @@
 #                                   register_pricing below.
 #   anthropic/claude-haiku-4-5  -> resolves bare, as "claude-haiku-4-5".
 #   openai/gpt-4o               -> resolves bare, as "gpt-4o".
-#   anthropic/claude-sonnet-4-5 -> resolves bare, as "claude-sonnet-4-5"
-#                                   (also carries a negotiated-rate override
-#                                   below, independent of resolution).
+#   anthropic/claude-sonnet-4-5 -> resolves bare, as "claude-sonnet-4-5".
 
 version: 1
 
@@ -30,6 +28,11 @@ models:
     supports_json_mode: true
     max_context_tokens: 8192
     max_output_tokens: 2048
+    # p50 from baseline run artifacts/baseline/2026-08-10 (repeats=3,
+    # concurrency=2). NOTE: p95 was 19.4s, far over the 8s SLO — see that run's
+    # outputs.md "What we learned". Local runs by default; set
+    # AUTOPILOT_DISABLE_LOCAL=true to exclude it (the documented demo default).
+    expected_latency_ms: 3582
     # litellm 1.95.0's map has "ollama/llama3" but NOT "ollama_chat/llama3.1",
     # so we teach it. Without this block the loader raises rather than
     # defaulting the price to zero.
@@ -47,6 +50,7 @@ models:
     provider_model_id: anthropic/claude-haiku-4-5
     quality_tier: 2
     supports_json_mode: true
+    expected_latency_ms: 1534  # p50, same baseline run (2026-08-10)
     # No price block: resolved from the bundled map. Note the map key is
     # "claude-haiku-4-5" WITHOUT the "anthropic/" prefix — the loader's
     # two-step resolution handles that.
@@ -57,6 +61,7 @@ models:
     provider_model_id: openai/gpt-4o
     quality_tier: 3
     supports_json_mode: true
+    expected_latency_ms: 1243  # p50, same baseline run (2026-08-10)
     baseline: true
 
   # --- tier 3: the judge ------------------------------------------------------
@@ -65,13 +70,11 @@ models:
     provider_model_id: anthropic/claude-sonnet-4-5
     quality_tier: 3
     supports_json_mode: true
+    expected_latency_ms: 2312  # p50, same baseline run (2026-08-10)
     judge: true
     judge_fallback: gpt-4o
-    # Negotiated rate, deliberately disagreeing with the bundled map.
-    # price_source becomes CATALOG_OVERRIDE and the divergence is logged at
-    # load — this model resolves against the map on its own ("claude-sonnet-
-    # 4-5" is bare-key present), the override is a business decision, not a
-    # resolution workaround.
-    price:
-      input_cost_per_token: "0.0000027"
-      output_cost_per_token: "0.0000135"
+    # No price block: resolved from the bundled map ("claude-sonnet-4-5" is
+    # bare-key present). An earlier override (0.0000027/0.0000135) was carried
+    # as a "negotiated rate" but was in fact a stale price — the baseline
+    # harness (#9) surfaced the map disagreeing by 10% via the price-agreement
+    # canary, and there is no actual discount, so the override was removed.

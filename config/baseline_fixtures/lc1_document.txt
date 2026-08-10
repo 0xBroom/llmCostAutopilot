@@ -1,0 +1,212 @@
+INTERNAL MEMO — Q2 ENGINEERING REVIEW: PROJECT MERIDIAN
+
+Distribution: Engineering leadership, Platform SRE, Finance partners, Customer Support leadership
+Classification: Internal use only
+Prepared by: Platform Engineering, with input from SRE, Finance, and Support
+
+## Section 1: Executive Summary
+
+Project Meridian was chartered in January to replace the company's aging
+on-premise order-processing cluster with a managed, horizontally scalable
+deployment running across two cloud regions. The stated goals for the
+quarter were fourfold: cut median order-processing latency by 40 percent,
+reduce the on-call burden carried by the Platform team, retire the vendor
+contract for the legacy database appliance before its renewal date in July,
+and do all of this without a customer-visible incident, given that the
+legacy appliance had itself become a source of unplanned downtime over the
+previous year. This memo summarizes what shipped, what the numbers actually
+show, what it cost, and what the team is carrying into Q3. Overall, the
+quarter is being framed internally as a qualified success: the target
+architecture is in production and taking real traffic, the vendor contract
+is on track to lapse without renewal, and the team ends the quarter larger
+and better organized than it started. That framing should not be read as
+uncomplicated, though, and several sections below deserve a closer read than
+the headline suggests, particularly where they touch on how the migration
+itself actually went.
+
+## Section 2: The Datacenter Migration
+
+The centerpiece of the quarter was the migration of the order-processing
+database from the legacy appliance to the new managed cluster. This
+migration was completed ahead of schedule, finishing in the second week of
+March rather than the planned end-of-March date, and — notably — with zero
+customer-facing downtime. The cutover was executed as a blue-green switch:
+traffic was shifted gradually across a six-hour window using weighted DNS
+and a feature flag on the order-submission service, and the old appliance
+was kept warm as a rollback target for a further 72 hours before being
+decommissioned. Every dashboard the migration team watched during the
+cutover stayed green throughout, and no incident ticket was opened in
+connection with the event. Rehearsals ran twice against a staging replica
+in the two weeks prior, and both rehearsals completed without incident,
+which the team took as a strong signal the production cutover would go
+just as smoothly. The team that ran this migration deserves real credit: a
+database cutover of this size with no visible customer impact is not the
+norm in this industry, and it set a positive tone for the rest of the
+quarter's infrastructure work. Leadership cited this migration in the
+all-hands as the clearest example this year of infrastructure work being
+done "the right way" — planned, rehearsed, and boring in execution — and
+used it as the model other teams should follow for their own upcoming
+platform migrations.
+
+## Section 3: Team Structure and Staffing
+
+The Platform team grew from six to nine engineers during the quarter, with
+three new hires joining specifically to support the Meridian rollout and
+the subsequent operational load. Two of the three new hires came from
+acquisition, bringing direct experience with the specific database engine
+Meridian standardized on, which shortened the ramp-up considerably; the
+third was an internal transfer from the payments team who had previously
+worked on capacity planning for a comparably sized system. The team also
+formalized an on-call rotation for the first time, moving away from the
+previous ad hoc arrangement where the two most senior engineers absorbed
+nearly all pages regardless of whose service was implicated. Early feedback
+on the new rotation has been positive: pages are now routed by service
+ownership rather than seniority, and the on-call load per engineer has
+dropped even as total page volume has stayed roughly flat. A retrospective
+survey run at the end of the quarter showed self-reported on-call fatigue
+down noticeably from the Q1 baseline, though several respondents noted that
+March specifically was an outlier month that the survey's phrasing did not
+capture well.
+
+## Section 4: Incident Response and Postmortems
+
+Three Sev-2 incidents and one Sev-1 incident were declared against
+order-processing infrastructure during the quarter. The Sev-1 is the one
+worth dwelling on: it was the March datacenter migration itself. Contrary
+to the celebratory account in Section 2, the cutover triggered a
+connection-pool exhaustion bug in the new cluster's proxy layer roughly
+ninety minutes after traffic shifted, producing an outage that degraded
+order submission for just over six hours before a hotfix restored normal
+service. The postmortem (INC-2091) is unambiguous on both the duration and
+the customer impact: checkout success rate fell to 34 percent at the worst
+point, and the incident was visible on the company's public status page for
+the first time in over a year. Neither staging rehearsal had reproduced the
+bug, because the rehearsal environment's connection pool was sized well
+below production load and never came close to exhaustion — a gap the
+postmortem calls out explicitly as the single biggest reason the rehearsals
+gave false confidence. The migration's true completion — inclusive of the
+remediation work, the follow-up proxy-layer rewrite, and the second,
+quieter cutover attempt that actually stabilized the cluster — landed in
+early May, roughly two months later than the date celebrated in Section 2.
+The postmortem's corrective actions include a load-testing gate that this
+migration skipped under schedule pressure, and that gate is now a hard
+blocker for any future cutover of this class. The remaining two Sev-2
+incidents were unrelated: one was a certificate expiry on an internal
+service mesh sidecar, and the other was a slow memory leak in a batch
+reconciliation job, both resolved within their respective SLAs.
+
+## Section 5: Latency and Cost Outcomes
+
+Median order-processing latency, measured over the four weeks following the
+cluster's eventual stabilization in May, is down 37 percent against the
+Q1 baseline — just short of the 40 percent target, and a number that should
+be read alongside Section 4 rather than in isolation, since the "ahead of
+schedule, zero downtime" framing in Section 2 does not reflect the incident
+timeline that actually produced this outcome. Tail latency (p99) improved
+even more, down 52 percent, largely because the new cluster's connection
+pooling — once correctly sized — eliminates a queuing behavior the legacy
+appliance exhibited under bursty load. Infrastructure spend is trending 18
+percent below the legacy appliance's total cost of ownership once the
+appliance's maintenance contract is fully wound down at the end of Q3,
+though the migration itself consumed roughly three weeks of unbudgeted
+engineering time during incident response and the subsequent proxy-layer
+rewrite, a cost that is not captured in the infrastructure spend figure and
+that Finance has asked to have modeled separately for the Q3 forecast.
+
+## Section 6: Customer Support Signal
+
+Support ticket volume tagged "checkout" or "order failed" spiked sharply
+during the six-hour window of INC-2091, consistent with the postmortem's
+account, and returned to baseline within a day of the hotfix. A smaller,
+secondary bump appeared in late April tied to the second cutover attempt,
+though that bump was an order of magnitude smaller and resolved within
+hours. Outside of those two windows, ticket volume for the quarter tracks
+slightly below the Q1 baseline, which the Support team attributes mostly to
+the latency improvements described in Section 5 rather than to any change
+in ticket-handling process on their side.
+
+## Section 7: Vendor Contract Wind-down
+
+The legacy appliance's maintenance contract carries an automatic renewal on
+July 1st unless formally terminated with 90 days' notice, which was filed
+in early April — after the appliance had already been kept warm past its
+original 72-hour rollback window specifically to support the incident
+response described in Section 4. Finance confirms the termination notice is
+valid and the contract will lapse on schedule, closing out the third of the
+quarter's four original goals.
+
+## Section 8: Roadmap for Q3
+
+Q3 priorities, in order, are: closing out the appliance decommissioning and
+contract termination described in Section 7; standing up the load-testing
+gate referenced in Section 4 as a permanent, mandatory part of the
+deployment pipeline for any future cutover of comparable size; and
+beginning discovery on a second migration, this time for the
+inventory-reservation service, which shares the legacy appliance and is
+next in line for the same treatment. The team has explicitly asked that the
+second migration be given a longer rehearsal window than Meridian received,
+and that the rehearsal environment be sized to match production connection
+load rather than a scaled-down approximation, citing the March incident as
+the direct reason for both asks.
+
+## Section 9: Security and Compliance Review
+
+The new cluster underwent an internal security review before the March
+cutover, covering network segmentation between the two regions, at-rest
+encryption for the order database, and the credential rotation policy for
+the service accounts the proxy layer uses to reach the database. The review
+found no blocking issues and two low-severity findings, both remediated
+before cutover: an overly broad IAM role attached to a monitoring sidecar,
+and a missing rotation schedule on one set of read-replica credentials.
+Neither finding is believed to be related to the connection-pool exhaustion
+bug described in Section 4 — that bug was purely a matter of pool sizing
+under load, not an access-control issue — and the security team has signed
+off on treating it as closed. A follow-up review is scheduled for Q3,
+timed to precede the inventory-reservation migration discovery work
+mentioned in Section 8, so that any lessons from Meridian's review can be
+folded in before the next cutover rather than after it.
+
+## Section 10: Lessons Learned
+
+The retrospective the Platform team ran after INC-2091 produced three
+concrete lessons that are now written into the team's migration checklist.
+First, rehearsal environments must be sized to match production load
+characteristics, not just production topology — the staging replica used
+for Meridian's rehearsals had the right shape but the wrong scale, and that
+gap is exactly what let the connection-pool bug through undetected twice.
+Second, "ahead of schedule" should be measured against full stabilization,
+not against the initial cutover event; the team has agreed internally that
+future migration timelines will not be considered complete until a defined
+soak period — currently proposed at two weeks — passes with no
+migration-attributable incidents. Third, the decision to keep the legacy
+appliance warm as a rollback target should default to a longer window than
+72 hours for any migration touching a service with a customer-facing SLA,
+since the actual remediation and validation work here took closer to eight
+weeks in total, well past the original rollback window, though thankfully
+that specific gap did not end up mattering because the fix was applied
+in place rather than by rolling back.
+
+## Appendix: Quarter-at-a-Glance Metrics
+
+The table below summarizes the headline metrics referenced throughout this
+memo, gathered by Finance and SRE for the quarterly business review.
+
+- Median order-processing latency, Q1 baseline: 210ms
+- Median order-processing latency, post-stabilization (May): 132ms (-37%)
+- p99 latency, Q1 baseline: 1,840ms
+- p99 latency, post-stabilization (May): 883ms (-52%)
+- Sev-1 incidents: 1 (INC-2091, the March cutover)
+- Sev-2 incidents: 2 (certificate expiry; batch job memory leak)
+- Checkout success rate at INC-2091's worst point: 34%
+- Duration of degraded service during INC-2091: 6 hours 12 minutes
+- Platform team headcount, start of quarter: 6
+- Platform team headcount, end of quarter: 9
+- Infrastructure spend vs. legacy TCO, projected post-wind-down: -18%
+- Unbudgeted engineering time attributable to incident response and rework: ~3 weeks
+- Vendor contract termination notice filed: early April, for the July 1st renewal date
+- True migration completion date, including remediation and second cutover: early May
+
+## Question
+
+Which two sections of this memo contradict each other, and what exactly is
+the contradiction between them?

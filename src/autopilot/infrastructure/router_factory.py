@@ -188,7 +188,7 @@ def _verify_model_ids_round_tripped(router: Any, *, expected_ids: set[str]) -> N
         )
 
 
-def build_router(catalog: ModelCatalog, settings: Settings) -> Any:
+def build_router(catalog: ModelCatalog, settings: Settings, *, with_fallbacks: bool = True) -> Any:
     """Assemble the Router. Returns `litellm.Router`, typed `Any` — litellm
     does not export `Router` through `__init__.py`'s explicit surface, and
     `no_implicit_reexport` (mypy strict) refuses to let a type annotation
@@ -207,6 +207,13 @@ def build_router(catalog: ModelCatalog, settings: Settings) -> Any:
       context-overflow retry means the audit trail never records why a
       bigger model actually answered.
 
+    `with_fallbacks=False` builds the same deployments with an empty fallback
+    list, for callers that must measure each model in isolation — the provider
+    baseline harness (#9), where a silent substitution of one model for another
+    would contaminate the very numbers being measured. Passing `[]` (falsy, not
+    `None`) means `router.py:594-599` never appends the wildcard global, so the
+    result genuinely has no fallbacks rather than inheriting litellm's.
+
     See `tests/unit/test_router_factory.py` for the assertions that only a
     constructed instance can prove.
     """
@@ -218,7 +225,7 @@ def build_router(catalog: ModelCatalog, settings: Settings) -> Any:
     # class as the return type above.
     router = litellm.Router(  # type: ignore[attr-defined]
         model_list=model_list,
-        fallbacks=build_fallbacks(catalog),
+        fallbacks=build_fallbacks(catalog) if with_fallbacks else [],
         num_retries=ROUTER_NUM_RETRIES,
         retry_after=ROUTER_RETRY_AFTER_SECONDS,
         allowed_fails=ROUTER_ALLOWED_FAILS,

@@ -135,3 +135,50 @@ def test_daily_budget_rejects_a_float() -> None:
     reach a pydantic field coercion."""
     with pytest.raises(ValidationError, match="never a float"):
         _settings(daily_budget_usd=25.0)
+
+
+def test_baseline_max_concurrency_defaults_to_two() -> None:
+    assert _settings().baseline_max_concurrency == 2
+
+
+def test_baseline_max_concurrency_overridable_by_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUTOPILOT_BASELINE_MAX_CONCURRENCY", "8")
+    assert _settings().baseline_max_concurrency == 8
+
+
+def test_baseline_max_concurrency_must_be_positive() -> None:
+    with pytest.raises(ValidationError):
+        _settings(baseline_max_concurrency=0)
+
+
+def test_baseline_confirm_spend_threshold_defaults_to_one_dollar() -> None:
+    assert _settings().baseline_confirm_spend_threshold_usd == Decimal("1.00")
+
+
+def test_baseline_confirm_spend_threshold_overridable_by_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTOPILOT_BASELINE_CONFIRM_SPEND_THRESHOLD_USD", "5.50")
+    assert _settings().baseline_confirm_spend_threshold_usd == Decimal("5.50")
+
+
+def test_baseline_confirm_spend_threshold_accepts_a_decimal() -> None:
+    assert _settings(
+        baseline_confirm_spend_threshold_usd=Decimal("2.00")
+    ).baseline_confirm_spend_threshold_usd == Decimal("2.00")
+
+
+def test_baseline_confirm_spend_threshold_rejects_a_float() -> None:
+    """Same Decimal-boundary rule as `daily_budget_usd` — this value also
+    gates real money."""
+    with pytest.raises(ValidationError, match="never a float"):
+        _settings(baseline_confirm_spend_threshold_usd=1.5)
+
+
+def test_disable_local_defaults_to_false() -> None:
+    assert _settings().disable_local is False
+
+
+def test_disable_local_overridable_by_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUTOPILOT_DISABLE_LOCAL", "true")
+    assert _settings().disable_local is True
