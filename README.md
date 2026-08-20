@@ -52,6 +52,25 @@ stronger model and scored by a judge. Where the gap is material, the request is
 escalated and the routing failure is recorded — and those failures become
 candidate training examples, behind a human review gate.
 
+### What "complexity" means here
+
+"Send it to the cheapest model that can handle it" is only a claim if
+*complexity* is defined tightly enough that two people labelling the same
+prompts agree. That definition is
+[`docs/complexity-taxonomy.md`](docs/complexity-taxonomy.md): three tiers, six
+escalation signals, an explicit list of things that must **not** escalate a
+tier, and a ruling on each of the seven edge cases annotators actually argue
+about — several of them justified by a measured failure in the committed
+baseline run.
+
+Agreement is measured, reported, and **not** gated: gating on Cohen's κ is an
+unbounded relabelling loop that also corrupts the number being optimised
+against. Section 9 of that document records what was measured, by whom, and —
+just as importantly — what has not been measured yet. The rubric-ambiguity κ
+comes from two independent LLM annotators applying the document cold; the
+human blind self-relabel is described there as exactly that, and is marked
+*not yet run* until it is.
+
 ## The five invariants
 
 Everything in this repository is subordinate to these. They are not aspirations;
