@@ -7,15 +7,19 @@ requires-python = ">=3.11,<3.14"
 license = { text = "MIT" }
 
 dependencies = [
+    "aiosqlite>=0.20",
     # Pinned EXACTLY, not with a range. LiteLLM ships its model price map
     # *inside the package*, so the version determines our cost figures. An
     # unreviewed minor bump can silently change every number in the savings
     # report. Upgrades are a reviewed change with a re-run of the benchmark.
     # See docs/adr/0001-litellm-as-provider-abstraction.md.
+    "alembic>=1.14",
+    "greenlet>=3.5.5",
     "litellm==1.95.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.14",
     "pyyaml>=6.0",
+    "sqlalchemy>=2.0",
     "structlog>=25.0",
 ]
 
@@ -78,6 +82,8 @@ ban-relative-imports = "all"
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "ANN", "ARG", "DTZ"]
 "src/autopilot/interfaces/cli/**" = ["T20"]
+# The write-path benchmark reports its measured latency to stdout on purpose.
+"tests/integration/test_request_store.py" = ["S101", "ANN", "ARG", "DTZ", "T20"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["autopilot"]
