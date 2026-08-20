@@ -69,7 +69,9 @@ against. Section 9 of that document records what was measured, by whom, and —
 just as importantly — what has not been measured yet. The rubric-ambiguity κ
 comes from two independent LLM annotators applying the document cold; the
 human blind self-relabel is described there as exactly that, and is marked
-*not yet run* until it is.
+*not yet run* until it is —
+[`docs/human-calibration-guide.md`](docs/human-calibration-guide.md) is how it
+gets run.
 
 ## The five invariants
 

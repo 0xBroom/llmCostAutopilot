@@ -394,6 +394,9 @@ pre-filled the slug.
 *Status: **not yet run.** This section is deliberately empty rather than
 filled with a number nobody measured.*
 
+**Step-by-step walkthrough, including the four things that invalidate the run
+invisibly: [`docs/human-calibration-guide.md`](human-calibration-guide.md).**
+
 **Procedure**, exactly as it will be described in the README when it is run:
 a single annotator labels the 25 prompts, waits at least 48 hours, and
 relabels them blind to the first pass. This is one person re-labelling
