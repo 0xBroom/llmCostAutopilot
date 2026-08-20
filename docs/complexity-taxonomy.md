@@ -4,6 +4,8 @@ status: active
 last_updated: 2026-08-20
 supersedes: none
 evidence_run: artifacts/baseline/2026-08-10
+calibration_run: artifacts/calibration/2026-08-20
+calibrated_at_commit: 0817988
 issue: https://github.com/0xBroom/llmCostAutopilot/issues/10
 ---
 
@@ -195,8 +197,22 @@ output, which is the worst failure shape. A tier-1 English extraction task in
 Swahili is labelled tier 2.
 
 Applies to the *language of the material being reasoned over*, not the
-language of the instructions. English instructions over a Japanese document
-escalate; Japanese instructions over an English document do not.
+language of the instructions. English instructions over a Swahili document
+escalate; Swahili instructions over an English document do not. That axis is
+independent of the list below — the list decides *which* languages escalate,
+this paragraph decides *which part of the prompt* the list is read against.
+
+**"Low-resource" is a declared list, not a judgement call.** This was the one
+ruling the v1 calibration split on (section 10), and the fix is to remove the
+judgement. Escalate for any language **outside** this set:
+
+`en`, `es`, `pt`, `fr`, `de`, `it`, `nl`, `ru`, `zh`, `ja`, `ko`
+
+Inside the set, label as the English equivalent. Outside it, escalate one
+tier. The list is an assumption about where cheap models degrade, not a
+measurement — it is provisional until #16 reports per-language accuracy, and
+it is a list precisely so that revising it is a one-line, reviewable change
+instead of a re-argument at every prompt.
 
 Not yet measured on our own baseline — the #9 corpus is English-only. #11
 mandates ≥15 non-English rows, and #16's per-tier accuracy report is where
@@ -266,8 +282,12 @@ reaching for a tier and then rationalising it.
    "Locate a date." "Decide a category." "Weigh two options and commit."
 3. **Assign the base tier** from the section 2 table using the two boundary
    questions.
-4. **Walk the six escalation signals** in section 3 in order. Stop at the
-   first that holds; record its slug.
+4. **Walk all six escalation signals** in section 3 and record every slug
+   that holds, naming the one that drove the escalation first. An earlier
+   version of this step said "stop at the first that holds", which is faster
+   and cost us the audit trail: #11's `signals` field is what #16 slices
+   per-signal accuracy by, and a label carrying one of three applicable
+   signals silently shrinks those slices. See section 10.
 5. **Check the non-signals** in section 4. If the only reason you escalated
    is on that list, revert.
 6. **Check the edge-case list** in section 6. If the prompt matches one,
@@ -331,7 +351,43 @@ Read it as an ambiguity smoke test with a known optimistic bias.
 **These labels never enter the #11 dataset.** They exist to grade the
 document. #11 rule 1 stands.
 
-<!-- KAPPA_RUBRIC_RESULT -->
+| | |
+| :-- | :-- |
+| **Cohen's κ** | **0.940** — "almost perfect" on the Landis & Koch bands |
+| Raw agreement | 24 / 25 (96.0%) |
+| Expected agreement by chance | 33.3% |
+| Annotators | two subagents, fresh contexts, same model (Claude Sonnet, one alias, both passes) |
+| Inputs given | this document and `config/calibration_prompts.yaml`, nothing else |
+| Disagreements | one: `cal-21` |
+| Full report | [`artifacts/calibration/2026-08-20/agreement.md`](../artifacts/calibration/2026-08-20/agreement.md) |
+| Label passes | `pass-rubric-a.yaml`, `pass-rubric-b.yaml` in the same directory |
+
+**Read this number with three caveats, all of which make it weaker than it
+looks.**
+
+1. **It measures the document as it stood at commit `0817988`**, before the
+   clarifications in section 10 were appended — which is the honest ordering,
+   since those clarifications were *derived from* this run. Section 11's rule
+   says a ruling change requires re-calibration; the `cal-21` clarification
+   resolves an ambiguity the calibration exposed without reversing any tier
+   ruling, so it lands in v1, and κ_human below will be the first number that
+   measures the clarified text. Git has the exact document that produced
+   0.940.
+2. **n = 25 with a single disagreement is a fragile estimate.** One more
+   disagreement would put κ near 0.88. Treat 0.940 as "no systematic
+   ambiguity found", not as a precise quantity.
+3. **The optimistic bias is the whole caveat.** Two instances of one model
+   share priors that two people do not. The tier marginals came out 8/8/9 and
+   8/9/8, so the balance is real and `p_e` is a clean 1/3 — but a high κ here
+   is evidence that the document is *internally* unambiguous, not that a
+   second human would land in the same place.
+
+**What the run did establish:** the three tier definitions and the seven
+edge-case rulings were applied identically 24 times out of 25, and the single
+split was a genuine hole in the text — not a coin flip. The rubric's
+`edge_case` recognition also agreed everywhere except that same prompt, which
+is the part that would have been trivially inflated had the worksheet
+pre-filled the slug.
 
 ### Measurement 2 — human self-agreement (κ_human)
 
@@ -370,7 +426,40 @@ Every disagreement gets a clarification appended here, with the prompt that
 provoked it. This is the section that grows; it is the living part of the
 document and the reason the version number exists.
 
-<!-- CLARIFICATIONS -->
+### v1 — from κ_rubric, 2026-08-20
+
+**`cal-21` (tier 2 vs 3) — one-sentence summary of a Portuguese product
+review.** Both passes identified the tier-2 base and the `condensation`
+signal, and split on whether edge case 6.4 applies: one escalated because the
+material is not English, the other did not, on the grounds that Portuguese is
+not a low-resource language. Both readings are defensible against the text as
+written, which means the text was the problem — 6.4 said "low-resource
+language" and never said who decides.
+
+**Ruling: replace the judgement with a list.** Edge case 6.4 now names the
+languages that do *not* escalate, so the annotator performs a lookup rather
+than an assessment. Portuguese is inside the set, so `cal-21` is tier 2. The
+list is explicitly an unverified assumption pending #16, and revising it is a
+one-line change rather than a re-argument at every prompt.
+
+**Signal slugs diverged on 6 prompts where the tier agreed** — `cal-07`,
+`cal-10`, `cal-11`, `cal-14`, `cal-19`, `cal-24`. The usual pattern was one
+pass recording `reasoning-verbs` where the other recorded `error-consequence`
+or `synthesis`. **κ did not see any of this**, because κ is computed over the
+tier alone; it surfaced only from diffing the two worksheets by hand.
+
+The cause was procedural, not conceptual: step 4 told the annotator to stop
+at the first signal that holds, so two annotators walking the same list in
+the same order still stopped at different places when several applied.
+**Ruling: record every applicable signal, ordered with the escalating one
+first.** #11's `signals` field feeds #16's per-signal accuracy slices, and a
+label carrying one of three applicable signals silently shrinks those slices
+in a way nothing downstream can detect. Section 8 step 4 is updated.
+
+**Worth stating plainly:** this second finding is the more useful of the two,
+and the headline κ is blind to it. A single agreement statistic over the
+label of record will always be blind to the fields around it — which is an
+argument for diffing the worksheets, not only computing the number.
 
 ## 11. Versioning
 
@@ -384,4 +473,6 @@ document and the reason the version number exists.
   invalidates a historical accuracy number — it makes the comparison
   explicitly cross-version.
 
-<!-- VERSION_TABLE -->
+| Version | Date | Change | κ_rubric | κ_human |
+| :-- | :-- | :-- | :-- | :-- |
+| 1 | 2026-08-20 | Initial taxonomy: 3 tiers, 6 signals, 7 edge-case rulings, evidence from the 2026-08-10 baseline run. Clarified after calibration: 6.4 low-resource list, section 8 step 4 signal recording. | 0.940 (n=25, two LLM annotators, measured at commit `0817988`) | not yet run |

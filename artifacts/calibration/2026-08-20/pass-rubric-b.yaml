@@ -1,0 +1,152 @@
+version: 1
+taxonomy_version: 1
+prompts:
+  - id: cal-01
+    tier: 1
+    label_reason: "Both fields are located verbatim in the receipt text and just need reformatting, so no signal escalates it beyond mechanical extraction."
+    signals: [transformation]
+    edge_case: null
+
+  - id: cal-02
+    tier: 1
+    label_reason: "Every IPv4 address is present in the log; deduplicating and ordering by first appearance is locating and reshaping, not reasoning, so raw length (a non-signal) does not escalate it."
+    signals: [transformation]
+    edge_case: long-but-trivial
+
+  - id: cal-03
+    tier: 2
+    label_reason: "Compressing a multi-fact paragraph into exactly two sentences requires choosing what to drop, i.e. condensation."
+    signals: [condensation]
+    edge_case: null
+
+  - id: cal-04
+    tier: 3
+    label_reason: "Fourteen words hide a requirement to hold a mental model of Postgres locking/rewrite behavior and reason about consequences not stated in the prompt, the short-but-hard shape of edge case 6.2."
+    signals: [hop-count, error-consequence]
+    edge_case: short-but-hard
+
+  - id: cal-05
+    tier: 1
+    label_reason: "Values and units are copied straight out of the bullet list into table cells; it is reshaping, not deciding."
+    signals: [transformation]
+    edge_case: null
+
+  - id: cal-06
+    tier: 2
+    label_reason: "Choosing one queue from four requires interpreting overlapping cues (billing vs. legal) in the email, a single-hop classification judgement."
+    signals: [single-hop-inference]
+    edge_case: null
+
+  - id: cal-07
+    tier: 3
+    label_reason: "There is no single correct rate-limiting combination; recommending one, costing it, and naming a scenario that would change the recommendation is an open-ended trade-off judgement."
+    signals: [open-endedness, reasoning-verbs]
+    edge_case: null
+
+  - id: cal-08
+    tier: 1
+    label_reason: "A short, unambiguous business paragraph translated into French is a direct transformation with nothing to infer."
+    signals: [transformation]
+    edge_case: null
+
+  - id: cal-09
+    tier: 2
+    label_reason: "The underlying task (locate and format a date) is tier-1 mechanical extraction in English, but the material is in Vietnamese, a low-resource language, which the multilingual ruling escalates one tier."
+    signals: [transformation]
+    edge_case: multilingual
+
+  - id: cal-10
+    tier: 3
+    label_reason: "The summarisation task itself is condensation, but the ticket text contains an injected instruction the model is asked to act on while processing it, so the adversarial ruling forces tier 3 regardless of the surface task."
+    signals: [condensation, error-consequence]
+    edge_case: adversarial
+
+  - id: cal-11
+    tier: 2
+    label_reason: "There is no underlying content task, just a bare injection attempt, so the adversarial ruling sets the tier-2 floor rather than tier 3 since nothing is wrapped for the model to act on."
+    signals: []
+    edge_case: adversarial
+
+  - id: cal-12
+    tier: 1
+    label_reason: "The answer ('nineteen arches') is stated verbatim in the paragraph, so this is closed QA over provided context."
+    signals: [transformation]
+    edge_case: null
+
+  - id: cal-13
+    tier: 2
+    label_reason: "Field values are trivial to locate, but the nested schema with a conditionally-required 'customs' object is a structural contract the model must get exactly right, the brutal-format pattern."
+    signals: [structure-depth, constraint-count]
+    edge_case: brutal-format
+
+  - id: cal-14
+    tier: 3
+    label_reason: "Diagnosing a flat, log-silent, production-only 500 rate means combining several non-adjacent symptoms into a hypothesis about where to look, i.e. debugging from symptoms."
+    signals: [hop-count, reasoning-verbs]
+    edge_case: null
+
+  - id: cal-15
+    tier: 2
+    label_reason: "Drafting a short decline email requires light judgement about tone and phrasing beyond simply transforming given facts."
+    signals: [single-hop-inference]
+    edge_case: null
+
+  - id: cal-16
+    tier: 3
+    label_reason: "A tiered per-parcel rate, a day-over-day percentage increase, and a fuel surcharge must all be combined correctly in sequence, the same hop-count cliff seen in multistep word problems."
+    signals: [hop-count]
+    edge_case: null
+
+  - id: cal-17
+    tier: 1
+    label_reason: "Splitting the paragraph into three bullets while preserving the original wording is pure reshaping; the crisis-line subject matter is not itself distressing content, so the refusal-adjacent ruling does not apply."
+    signals: [transformation]
+    edge_case: null
+
+  - id: cal-18
+    tier: 2
+    label_reason: "Assigning a triage band from explicit self-harm language is a single-hop classification judgement; per the refusal-adjacent ruling, the sensitivity of the content does not itself raise the tier."
+    signals: [single-hop-inference]
+    edge_case: refusal-adjacent
+
+  - id: cal-19
+    tier: 3
+    label_reason: "Per the chat-continuation ruling the whole thread is the input, and 'write the migration plan' for the chosen columnar-store path is an open-ended planning task with no single correct plan."
+    signals: [open-endedness]
+    edge_case: chat-continuation
+
+  - id: cal-20
+    tier: 1
+    label_reason: "The final turn is an unrelated, self-contained unit conversion, a genuine topic reset, so it is labelled on the new request alone rather than the preceding apartment trade-off discussion."
+    signals: [transformation]
+    edge_case: chat-continuation
+
+  - id: cal-21
+    tier: 2
+    label_reason: "Summarising the review to one sentence is ordinary condensation; Portuguese is not a low-resource language, so the multilingual escalation ruling does not apply here."
+    signals: [condensation]
+    edge_case: null
+
+  - id: cal-22
+    tier: 3
+    label_reason: "The announcement is a straightforward draft, but simultaneous hard constraints spanning format, length, tone and content exclusions push it over the constraint-count threshold."
+    signals: [constraint-count]
+    edge_case: null
+
+  - id: cal-23
+    tier: 1
+    label_reason: "Deduplicating and alphabetising a name list is reshaping already-present data, with no decision or condensation involved."
+    signals: [transformation]
+    edge_case: null
+
+  - id: cal-24
+    tier: 3
+    label_reason: "Determining whether a 30-day termination-for-convenience clause conflicts with a 12-month non-cancellable-fee clause requires combining two non-adjacent contract provisions and reasoning about their interaction."
+    signals: [hop-count, reasoning-verbs]
+    edge_case: null
+
+  - id: cal-25
+    tier: 2
+    label_reason: "Per the chat-continuation ruling the whole thread is the input; 'And shorter' asks for further condensation of the prior summary, not a topic reset."
+    signals: [condensation]
+    edge_case: chat-continuation

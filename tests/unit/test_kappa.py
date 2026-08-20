@@ -305,3 +305,45 @@ def test_cli_writes_the_report_and_never_gates_on_a_low_kappa(
     assert report.exists()
     assert "deliberate disagreement" in report.read_text(encoding="utf-8")
     assert "kappa" in capsys.readouterr().out.lower()
+
+
+# --- the committed calibration run ----------------------------------------------
+
+TAXONOMY = Path("docs/complexity-taxonomy.md")
+CALIBRATION_RUN = Path("artifacts/calibration/2026-08-20")
+
+
+def read_front_matter(path: Path) -> dict[str, object]:
+    import yaml
+
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    front_matter: dict[str, object] = yaml.safe_load(text.split("---\n", 2)[1])
+    return front_matter
+
+
+def test_taxonomy_version_matches_the_calibration_set() -> None:
+    """A label carries `taxonomy_version`; if the worksheet and the document
+    disagree about what version 1 is, every #11 row inherits the confusion."""
+    import yaml
+
+    calibration = yaml.safe_load(CALIBRATION_SET.read_text(encoding="utf-8"))
+
+    assert read_front_matter(TAXONOMY)["version"] == calibration["taxonomy_version"]
+
+
+def test_recorded_kappa_is_rederivable_from_the_committed_passes() -> None:
+    """The number in the document is not an assertion, it is a computation over
+    files in this repository. This test is the compliance check on that claim."""
+    result = cohens_kappa(
+        load_label_pass(CALIBRATION_RUN / "pass-rubric-a.yaml"),
+        load_label_pass(CALIBRATION_RUN / "pass-rubric-b.yaml"),
+    )
+
+    assert result.kappa is not None
+    recorded = f"{result.kappa:.3f}"
+    assert recorded == "0.940"
+    assert recorded in TAXONOMY.read_text(encoding="utf-8")
+    assert recorded in (CALIBRATION_RUN / "agreement.md").read_text(encoding="utf-8")
+    # The one disagreement is the documented rubric hole, not an unexplained one.
+    assert [d.prompt_id for d in result.disagreements] == ["cal-21"]
