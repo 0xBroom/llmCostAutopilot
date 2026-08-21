@@ -48,13 +48,20 @@ class SqliteRequestStore:
         return row_to_record(dict(row))
 
     async def list_since(self, since: datetime, *, limit: int) -> Sequence[RequestRecord]:
+        if since.tzinfo is None:
+            raise ValueError("list_since requires a timezone-aware `since`")
+        if limit <= 0:
+            # SQLite reads LIMIT -1 as "no limit"; a non-positive limit is almost
+            # always a caller bug (an off-by-one page size going negative), and
+            # silently returning the entire table is the worst possible answer.
+            raise ValueError("list_since requires a positive `limit`")
         # Compare against the same UTC-normalised text the rows were stored with,
         # so the range filter and ordering are by instant, not by wall-clock string.
         since_text = since.astimezone(UTC).isoformat()
         stmt = (
             select(requests)
             .where(requests.c.received_at >= since_text)
-            .order_by(requests.c.received_at)
+            .order_by(requests.c.received_at, requests.c.id)
             .limit(limit)
         )
         async with self._engine.connect() as conn:

@@ -21,11 +21,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from autopilot.domain.models import (
+    ComplexityTier,
     CostBreakdown,
+    DecisionReason,
     RequestRecord,
     TokenUsage,
 )
-from autopilot.infrastructure.persistence import SqliteRequestStore, create_engine, metadata
+from autopilot.infrastructure.persistence import (
+    SqliteRequestStore,
+    create_sqlite_engine,
+    metadata,
+)
 from autopilot.infrastructure.persistence.schema import requests
 from tests.factories import CHEAP, EXPENSIVE, LOCAL, make_decision, make_record, make_response
 
@@ -33,7 +39,7 @@ pytestmark = pytest.mark.integration
 
 
 async def _make_store(db_path: Path) -> tuple[SqliteRequestStore, AsyncEngine]:
-    engine = create_engine(f"sqlite+aiosqlite:///{db_path}")
+    engine = create_sqlite_engine(f"sqlite+aiosqlite:///{db_path}")
     async with engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
     return SqliteRequestStore(engine), engine
@@ -89,6 +95,33 @@ async def test_error_record_roundtrips(store: SqliteRequestStore) -> None:
     assert fetched is not None
     assert fetched.response is None
     assert fetched.error == "provider timed out"
+
+
+async def test_escalated_from_roundtrips(store: SqliteRequestStore) -> None:
+    request_id = uuid4()
+    when = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    decision = make_decision(
+        request_id=request_id,
+        at=when,
+        tier=ComplexityTier.COMPLEX,
+        escalated_from=ComplexityTier.SIMPLE,
+        reason=DecisionReason.LOW_CONFIDENCE_ESCALATION,
+        chosen=EXPENSIVE,
+        baseline=EXPENSIVE,
+    )
+    record = RequestRecord(
+        request_id=request_id,
+        received_at=when,
+        decision=decision,
+        response=make_response(model=EXPENSIVE),
+        baseline_cost=CostBreakdown.compute(TokenUsage(100, 50), EXPENSIVE),
+    )
+    await store.save(record)
+
+    fetched = await store.get(request_id)
+
+    assert fetched == record
+    assert fetched is not None and fetched.decision.escalated_from is ComplexityTier.SIMPLE
 
 
 # --- upsert semantics ---------------------------------------------------------
@@ -159,6 +192,63 @@ async def test_list_since_orders_by_instant_across_timezones(store: SqliteReques
         earlier_utc.request_id,
         later_but_string_smaller.request_id,
     ]
+
+
+async def test_list_since_orders_by_microsecond(store: SqliteRequestStore) -> None:
+    a = make_record(at=datetime(2026, 1, 1, 12, 0, 0, 100000, tzinfo=UTC))
+    b = make_record(at=datetime(2026, 1, 1, 12, 0, 0, 500000, tzinfo=UTC))
+    await store.save(b)
+    await store.save(a)
+
+    listed = await store.list_since(datetime(2026, 1, 1, 0, 0, tzinfo=UTC), limit=10)
+
+    assert [r.request_id for r in listed] == [a.request_id, b.request_id]
+
+
+async def test_list_since_rejects_naive_since(store: SqliteRequestStore) -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        await store.list_since(datetime(2026, 1, 1, 12, 0), limit=10)  # naive
+
+
+async def test_list_since_rejects_non_positive_limit(store: SqliteRequestStore) -> None:
+    # SQLite reads LIMIT -1 as "unlimited"; the guard turns a caller bug into a
+    # loud error instead of a silent full-table dump.
+    for bad_limit in (0, -1):
+        with pytest.raises(ValueError, match="positive `limit`"):
+            await store.list_since(datetime(2026, 1, 1, 0, 0, tzinfo=UTC), limit=bad_limit)
+
+
+async def test_list_since_tie_break_is_deterministic(store: SqliteRequestStore) -> None:
+    # Two records at the identical instant must come back in a stable order
+    # (by id), not left to SQLite's discretion — pagination depends on it.
+    when = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    a = make_record(at=when)
+    b = make_record(at=when)
+    await store.save(b)
+    await store.save(a)
+
+    since = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    first = [r.request_id for r in await store.list_since(since, limit=10)]
+    second = [r.request_id for r in await store.list_since(since, limit=10)]
+
+    expected = sorted((a.request_id, b.request_id), key=str)
+    assert first == expected
+    assert first == second  # stable across calls
+
+
+async def test_engine_creates_a_missing_parent_directory(tmp_path: Path) -> None:
+    # A fresh clone has no data/ dir; opening the sqlite file must create the
+    # parent rather than failing with "unable to open database file".
+    nested = tmp_path / "does-not-exist-yet" / "sub" / "test.db"
+    assert not nested.parent.exists()
+    adapter, engine = await _make_store(nested)
+    try:
+        record = make_record()
+        await adapter.save(record)
+        assert await adapter.get(record.request_id) == record
+        assert nested.exists()
+    finally:
+        await engine.dispose()
 
 
 # --- money handling -----------------------------------------------------------

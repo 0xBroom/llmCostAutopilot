@@ -184,6 +184,21 @@ def test_a_record_needs_a_response_or_an_error() -> None:
         )
 
 
+def test_an_error_record_cannot_carry_a_baseline_cost() -> None:
+    """A failed call produced no token usage, so a baseline counterfactual for
+    it is meaningless — and persisting that shape would write an unreadable row.
+    The invariant lives here, in the domain, not in the storage adapter."""
+    with pytest.raises(ValueError, match="cannot carry a baseline cost"):
+        RequestRecord(
+            request_id=uuid4(),
+            received_at=datetime(2026, 1, 1, tzinfo=UTC),
+            decision=make_decision(),
+            response=None,
+            baseline_cost=CostBreakdown.zero(),
+            error="provider timeout",
+        )
+
+
 def test_savings_is_baseline_minus_actual() -> None:
     record = make_record(chosen=LOCAL, baseline=EXPENSIVE)
     assert record.savings == record.baseline_cost.total  # type: ignore[union-attr]

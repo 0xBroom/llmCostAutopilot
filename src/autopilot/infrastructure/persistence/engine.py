@@ -10,9 +10,11 @@ engine (a test's throwaway DB) is unaffected.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import event
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 # 5 seconds. Long enough that the worker waits out a normal request-path write
@@ -20,8 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 _BUSY_TIMEOUT_MS = 5000
 
 
-def create_engine(database_url: str) -> AsyncEngine:
+def create_sqlite_engine(database_url: str) -> AsyncEngine:
     """Build the async engine and install the SQLite pragmas on every connection."""
+    url = make_url(database_url)
+    if url.database and url.database != ":memory:":
+        Path(url.database).parent.mkdir(parents=True, exist_ok=True)
     engine = create_async_engine(database_url)
 
     @event.listens_for(engine.sync_engine, "connect")

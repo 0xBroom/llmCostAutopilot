@@ -83,7 +83,7 @@ ban-relative-imports = "all"
 "tests/**" = ["S101", "ANN", "ARG", "DTZ"]
 "src/autopilot/interfaces/cli/**" = ["T20"]
 # The write-path benchmark reports its measured latency to stdout on purpose.
-"tests/integration/test_request_store.py" = ["S101", "ANN", "ARG", "DTZ", "T20"]
+"tests/integration/test_request_store.py" = ["T20"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["autopilot"]
