@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint typecheck test test-live check clean run-api run-worker dashboard
+.PHONY: help install lint typecheck test test-live check clean migrate run-api run-worker dashboard
 
 ## help: list available targets
 help:
@@ -33,6 +33,10 @@ test:
 ## test-live: opt-in. Hits real providers. Costs money. Needs credentials.
 test-live:
 	uv run pytest -m live
+
+## migrate: apply Alembic migrations to the configured database (upgrade head)
+migrate:
+	uv run alembic upgrade head
 
 ## check: everything CI runs. If this is green, CI is green.
 check: lint typecheck test

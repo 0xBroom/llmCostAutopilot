@@ -377,6 +377,10 @@ class RequestRecord:
             raise ValueError("a record needs either a response or an error")
         if self.response is not None and self.baseline_cost is None:
             raise ValueError("a served response must carry its frozen baseline cost")
+        if self.response is None and self.baseline_cost is not None:
+            raise ValueError(
+                "an error record cannot carry a baseline cost: there is no usage to price"
+            )
 
     @property
     def savings(self) -> Decimal | None:
