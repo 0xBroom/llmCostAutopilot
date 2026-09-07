@@ -21,6 +21,14 @@ artifacts/*
 artifacts/baseline/*
 !artifacts/baseline/2026-08-10/
 
+# The taxonomy calibration run (#10) is committed for the same reason: the
+# agreement number in docs/complexity-taxonomy.md must be re-derivable from
+# the label passes in the repo, with no re-run and no credentials.
+!artifacts/calibration/
+artifacts/calibration/*
+!artifacts/calibration/2026-08-20/
+!artifacts/calibration/2026-08-28/
+
 # Python
 .venv/
 __pycache__/
@@ -30,6 +38,7 @@ dist/
 build/
 
 # Tooling caches
+.atl/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
