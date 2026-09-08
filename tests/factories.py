@@ -134,6 +134,7 @@ def make_response(
     model: ModelConfig = LOCAL,
     usage: TokenUsage | None = None,
     content: str = "4",
+    finish_reason: str = "stop",
     **kwargs: object,
 ) -> LLMResponse:
     u = usage or TokenUsage(prompt_tokens=100, completion_tokens=50)
@@ -144,7 +145,7 @@ def make_response(
         usage=u,
         cost=CostBreakdown.compute(u, model),
         latency_ms=42,
-        finish_reason="stop",
+        finish_reason=finish_reason,
         **kwargs,  # type: ignore[arg-type]
     )
 

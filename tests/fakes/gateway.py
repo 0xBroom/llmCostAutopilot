@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from autopilot.domain.errors import AllProvidersFailedError
 from autopilot.domain.models import (
@@ -22,6 +23,7 @@ class GatewayCall:
     request: CompletionRequest
     model: ModelConfig
     timeout_s: float
+    response_format: Mapping[str, Any] | None = None
 
 
 @dataclass
@@ -57,8 +59,13 @@ class FakeLLMGateway:
         model: ModelConfig,
         *,
         timeout_s: float,
+        response_format: Mapping[str, Any] | None = None,
     ) -> LLMResponse:
-        self.calls.append(GatewayCall(request=request, model=model, timeout_s=timeout_s))
+        self.calls.append(
+            GatewayCall(
+                request=request, model=model, timeout_s=timeout_s, response_format=response_format
+            )
+        )
 
         if (err := self.errors.get(model.key)) is not None:
             raise err

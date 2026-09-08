@@ -32,6 +32,7 @@ construction, not by a repr filter.
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from typing import Any, Protocol, runtime_checkable
 
 import structlog
@@ -85,12 +86,16 @@ class LiteLLMGateway:
         model: ModelConfig,
         *,
         timeout_s: float,
+        response_format: Mapping[str, Any] | None = None,
     ) -> LLMResponse:
         messages = self._to_messages(request)
         started = time.perf_counter()
+        extra: dict[str, Any] = {}
+        if response_format is not None:
+            extra["response_format"] = response_format
         try:
             raw = await self._router.acompletion(
-                model=model.key, messages=messages, timeout=timeout_s
+                model=model.key, messages=messages, timeout=timeout_s, **extra
             )
         except Exception as exc:
             raise translate(exc, model_key=model.key) from exc
