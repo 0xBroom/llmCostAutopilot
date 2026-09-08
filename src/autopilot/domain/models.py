@@ -18,6 +18,8 @@ from enum import IntEnum, StrEnum
 from typing import Final, Literal
 from uuid import UUID
 
+from autopilot.domain.quality import TaskType
+
 Role = Literal["system", "user", "assistant", "tool"]
 
 
@@ -45,6 +47,9 @@ class CompletionRequest:
     # A client may pin a model. The policy records that it was overridden
     # rather than silently ignoring it — see DecisionReason.CLIENT_PINNED_MODEL.
     requested_model: str | None = None
+    # The quality-contract task shape. Absent means the `DEFAULT` profile
+    # applies — never LLM-inferred, see `TaskType`.
+    task_type: TaskType = TaskType.DEFAULT
 
     def __post_init__(self) -> None:
         if not self.messages:

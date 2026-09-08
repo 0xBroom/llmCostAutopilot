@@ -24,6 +24,7 @@ from autopilot.domain.models import (
     SamplingStratum,
     TokenUsage,
 )
+from autopilot.domain.quality import TaskType
 from tests.factories import CHEAP, EXPENSIVE, LOCAL, make_decision, make_record, make_response
 
 # --- money --------------------------------------------------------------------
@@ -335,6 +336,25 @@ def test_max_tokens_must_be_positive_when_set() -> None:
 def test_token_usage_rejects_negative_counts() -> None:
     with pytest.raises(ValueError, match="cannot be negative"):
         TokenUsage(prompt_tokens=-1, completion_tokens=0)
+
+
+def test_completion_request_defaults_task_type_to_default_when_absent() -> None:
+    """Spec: Optional Task Type Field — absent task_type applies the default
+    profile; nothing here attempts to infer it via an LLM."""
+    request = CompletionRequest(
+        request_id=uuid4(),
+        messages=(Message(role="user", content="hi"),),
+    )
+    assert request.task_type is TaskType.DEFAULT
+
+
+def test_completion_request_accepts_an_explicit_task_type() -> None:
+    request = CompletionRequest(
+        request_id=uuid4(),
+        messages=(Message(role="user", content="hi"),),
+        task_type=TaskType.EXTRACTION,
+    )
+    assert request.task_type is TaskType.EXTRACTION
 
 
 def test_catalog_entries_need_a_positive_context_window() -> None:
