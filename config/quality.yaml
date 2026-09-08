@@ -1,0 +1,60 @@
+# Per-task-type quality-contract thresholds. Loaded by
+# `infrastructure.quality_thresholds_loader.load_quality_thresholds` — never
+# read directly by `domain` or `application` (`config-is-a-leaf`).
+#
+# `mode: deterministic` task types (extraction, classification) never invoke
+# the judge: the free deterministic checks alone decide pass/fail, at zero
+# LLM cost (see `domain.quality.run_deterministic_checks`).
+#
+# `mode: pairwise` task types (summarization, reasoning, default) additionally
+# run the blind pairwise judge comparison — see docs/quality.md for the full
+# methodology — whenever the deterministic checks already passed and the
+# request was already sampled. `fail_reference_margin_min` is the margin at
+# or above which a reference-model win FAILs the candidate; it is compared by
+# ORDERED position in `domain.quality.MARGIN_ORDER`
+# (negligible < moderate < decisive), never by equality — see Design
+# Decision Q5 / `domain.quality.resolve_verdict_label`. All three pairwise
+# profiles use `moderate`: a reference win has to be more than negligible to
+# fail the candidate, but does not need to be decisive.
+#
+# `required_fields` / `allowed_labels` / `length_bounds` are per-check
+# parameters: each is required exactly when its corresponding check name is
+# listed under `checks`, and forbidden otherwise — the loader fails loud on
+# either mismatch, per the fail-loud/no-silent-defaults contract this file
+# shares with `config/models.yaml`.
+#
+# The `extraction`/`classification` placeholder values below (a single
+# generic `value` field; a 3-label sentiment-style set) are schema
+# demonstrations, not a real deployment's field list or label taxonomy — a
+# concrete extraction/classification task overrides both to match its actual
+# output contract.
+
+version: 1
+
+task_types:
+  extraction:
+    mode: deterministic
+    checks: [json_valid, required_fields, not_truncated]
+    required_fields: [value]
+
+  classification:
+    mode: deterministic
+    checks: [not_refused, not_truncated, label_in_set]
+    allowed_labels: [positive, negative, neutral]
+
+  summarization:
+    mode: pairwise
+    checks: [not_refused, not_truncated, length_anomaly]
+    length_bounds: [20, 4000]
+    fail_reference_margin_min: moderate
+
+  reasoning:
+    mode: pairwise
+    checks: [not_refused, not_truncated]
+    fail_reference_margin_min: moderate
+
+  default:
+    mode: pairwise
+    checks: [not_refused, not_truncated, length_anomaly]
+    length_bounds: [1, 8000]
+    fail_reference_margin_min: moderate
