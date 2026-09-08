@@ -245,6 +245,29 @@ async def test_price_agreement_divergence_logs_never_raises() -> None:
     assert warning["litellm_cost"] != warning["catalog_cost"]
 
 
+# --- response_format passthrough (quality-judge JSON mode wiring) ---------------
+
+
+async def test_response_format_forwarded_to_router_when_set() -> None:
+    router = FakeRouter(responses={CHEAP.key: _response(model_id=CHEAP.provider_model_id)})
+    gateway = LiteLLMGateway(router=router, catalog=make_catalog())
+
+    await gateway.complete(
+        make_request(), CHEAP, timeout_s=30, response_format={"type": "json_object"}
+    )
+
+    assert router.calls[-1].kwargs["response_format"] == {"type": "json_object"}
+
+
+async def test_response_format_omitted_when_none_preserves_current_behavior() -> None:
+    router = FakeRouter(responses={CHEAP.key: _response(model_id=CHEAP.provider_model_id)})
+    gateway = LiteLLMGateway(router=router, catalog=make_catalog())
+
+    await gateway.complete(make_request(), CHEAP, timeout_s=30)
+
+    assert "response_format" not in router.calls[-1].kwargs
+
+
 # --- the raw payload never becomes a field, by construction ---------------------
 
 

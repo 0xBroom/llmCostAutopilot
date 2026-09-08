@@ -10,9 +10,9 @@ Nothing here may import from `infrastructure`, `interfaces` or any vendor SDK.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from autopilot.domain.models import (
@@ -71,6 +71,7 @@ class LLMGateway(Protocol):
         model: ModelConfig,
         *,
         timeout_s: float,
+        response_format: Mapping[str, Any] | None = None,
     ) -> LLMResponse: ...
 
 
